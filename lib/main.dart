@@ -63,6 +63,8 @@ ReminderController? _reminderController;
 /// 启动 Android 5 秒轮询监听,并把触发事件交给提醒控制器。
 void _startAndroidMonitor(SettingsService settingsService, StatisticsService statsService) {
   final logger = LoggerService();
+  logger.info('启动 Android 监听器', tag: 'Main');
+  
   final monitor = ForegroundMonitor(
     usageStats: UsageStatsMethodChannel(),
     settingsService: settingsService,
@@ -92,5 +94,6 @@ void _startAndroidMonitor(SettingsService settingsService, StatisticsService sta
   _androidMonitor = monitor;
   _reminderController = controller;
   monitor.start();
-  debugPrint('[够了吗] Android UsageStats 轮询已启动');
+  logger.info('Android UsageStats 轮询已启动，阈值=${settingsService.thresholdMinutes}分钟', tag: 'Main');
+  debugPrint('[够了吗] Android UsageStats 轮询已启动，阈值=${settingsService.thresholdMinutes}分钟，监听=${settingsService.monitoringEnabled}');
 }

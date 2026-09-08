@@ -72,42 +72,111 @@ class PermissionService {
     // 尝试按厂商打开，失败的兜底放在 catch 中给出可读提示。
     final deviceInfo = await DeviceInfoPlugin().androidInfo;
     final manufacturer = deviceInfo.manufacturer.toLowerCase();
+    debugPrint('[Permission] 设备厂商: $manufacturer');
 
-    if (manufacturer.contains('xiaomi')) {
-      const intent = AndroidIntent(
-        action: 'miui.intent.action.OP_AUTO_START',
-        data: 'package:$_packageName',
-      );
-      await intent.launch();
-      return;
-    }
+    try {
+      if (manufacturer.contains('xiaomi') || manufacturer.contains('redmi')) {
+        // 小米/红米：自启动管理
+        const intent = AndroidIntent(
+          action: 'miui.intent.action.APP_PERM_EDITOR',
+          data: 'package:$_packageName',
+        );
+        await intent.launch();
+        return;
+      }
 
-    if (manufacturer.contains('huawei') ||
-        manufacturer.contains('honor')) {
+      if (manufacturer.contains('huawei') || manufacturer.contains('honor')) {
+        // 华为/荣耀：启动管理器（新系统）
+        try {
+          const intent = AndroidIntent(
+            action: 'android.intent.action.MAIN',
+            componentName: 'com.huawei.systemmanager/.startupmgr.ui.StartupNormalAppListActivity',
+          );
+          await intent.launch();
+          return;
+        } catch (_) {
+          // 老系统回退到电池优化豁免
+          const intent = AndroidIntent(
+            action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+            data: 'package:$_packageName',
+          );
+          await intent.launch();
+          return;
+        }
+      }
+
+      if (manufacturer.contains('oppo')) {
+        // OPPO: 自启动管理
+        try {
+          const intent = AndroidIntent(
+            action: 'android.intent.action.MAIN',
+            componentName: 'com.coloros.safecenter/.startupapp.StartupAppListActivity',
+          );
+          await intent.launch();
+          return;
+        } catch (_) {
+          // 回退到电池优化
+          const intent = AndroidIntent(
+            action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+            data: 'package:$_packageName',
+          );
+          await intent.launch();
+          return;
+        }
+      }
+
+      if (manufacturer.contains('vivo')) {
+        // vivo: 后台自启管理
+        try {
+          const intent = AndroidIntent(
+            action: 'android.intent.action.MAIN',
+            componentName: 'com.vivo.permissionmanager/.activity.BgStartUpManagerActivity',
+          );
+          await intent.launch();
+          return;
+        } catch (_) {
+          const intent = AndroidIntent(
+            action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+            data: 'package:$_packageName',
+          );
+          await intent.launch();
+          return;
+        }
+      }
+
+      if (manufacturer.contains('oneplus')) {
+        // 一加：自启动管理
+        try {
+          const intent = AndroidIntent(
+            action: 'android.intent.action.MAIN',
+            componentName: 'com.oneplus.security/.chainlaunch.view.ChainLaunchAppListActivity',
+          );
+          await intent.launch();
+          return;
+        } catch (_) {
+          const intent = AndroidIntent(
+            action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+            data: 'package:$_packageName',
+          );
+          await intent.launch();
+          return;
+        }
+      }
+
+      // 通用兜底：电池优化豁免请求
       const intent = AndroidIntent(
         action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
         data: 'package:$_packageName',
       );
       await intent.launch();
-      return;
-    }
-
-    if (manufacturer.contains('oppo') ||
-        manufacturer.contains('vivo') ||
-        manufacturer.contains('oneplus')) {
+    } catch (e) {
+      debugPrint('[Permission] openAutoStartSettings 失败: $e，回退到应用详情页');
+      // 最终兜底：打开应用详情页，由用户自行找到“电池/后台”选项。
       const intent = AndroidIntent(
-        action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+        action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
         data: 'package:$_packageName',
       );
       await intent.launch();
-      return;
     }
-
-    // 通用兜底：打开应用详情页，由用户自行找到“电池/后台”选项。
-    const intent = AndroidIntent(
-      action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
-      data: 'package:$_packageName',
-    );
-    await intent.launch();
   }
 }

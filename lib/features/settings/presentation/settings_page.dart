@@ -108,12 +108,24 @@ class SettingsPage extends StatelessWidget {
     return _SectionCard(
       title: '后台监控',
       icon: Icons.monitor_heart_outlined,
-      child: SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('启用 Android 使用情况监听'),
-        subtitle: const Text('每 5 秒检测一次前台应用，仅在本地计算'),
-        value: settings.monitoringEnabled,
-        onChanged: (value) => settings.setMonitoringEnabled(value),
+      child: Column(
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用 Android 使用情况监听'),
+            subtitle: const Text('每 5 秒检测一次前台应用，仅在本地计算'),
+            value: settings.monitoringEnabled,
+            onChanged: (value) => settings.setMonitoringEnabled(value),
+          ),
+          const Divider(height: 1),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用智能消抖'),
+            subtitle: const Text('30秒内切回原应用继续计算提醒时间'),
+            value: settings.debounceEnabled,
+            onChanged: (value) => settings.setDebounceEnabled(value),
+          ),
+        ],
       ),
     );
   }

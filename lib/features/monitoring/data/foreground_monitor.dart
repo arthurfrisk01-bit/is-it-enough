@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
@@ -43,6 +44,15 @@ class ForegroundMonitor {
   /// 用户选择“再刷 X 分钟”后的屏蔽截止时刻。
   DateTime? _suppressedUntil;
 
+  /// 消抖：上一个应用包名（用于短暂切换后恢复计时）。
+  String? _previousPackage;
+
+  /// 消抖：上次切换应用的时间。
+  DateTime? _switchedAt;
+
+  /// 消抖：离开时已累计的时间（用于恢复）。
+  Duration? _accumulatedTime;
+
   bool get isRunning => _running;
 
   /// 启动轮询。已运行时忽略。
@@ -84,32 +94,66 @@ class ForegroundMonitor {
   Future<void> _tick() async {
     if (!_running) return;
     if (!_settings.monitoringEnabled) {
+      debugPrint('[够了吗] Monitor: 监听已关闭');
       _resetSession();
       return;
     }
 
     final granted = await _usageStats.isUsageAccessGranted();
     if (!granted) {
+      debugPrint('[够了吗] Monitor: 无 UsageStats 权限');
       _resetSession();
       return;
     }
 
     final package = await _usageStats.getForegroundPackage();
     if (package == null || package.isEmpty) {
+      debugPrint('[够了吗] Monitor: 无法获取前台包名');
       _resetSession();
       return;
     }
 
     // 系统/桌面/自身等不应参与“刷手机”判定。
     if (_shouldIgnore(package)) {
+      debugPrint('[够了吗] Monitor: 忽略包名 $package');
       _resetSession();
       return;
     }
 
     final now = DateTime.now();
 
-    // 切换到另一个 App：开启新的连续会话。
+    // 切换到另一个 App：判断是否需要消抖恢复计时。
     if (package != _currentPackage) {
+      final switchedAt = _switchedAt;
+      final previousPackage = _previousPackage;
+      final accumulatedTime = _accumulatedTime;
+
+      // 消抖逻辑：如果开启消抖 且 30秒内切回原应用，恢复计时
+      if (_settings.debounceEnabled &&
+          previousPackage == package &&
+          switchedAt != null &&
+          accumulatedTime != null &&
+          now.difference(switchedAt) <= AppConstants.debounceDuration) {
+        // 恢复之前的会话
+        debugPrint('[够了吗] Monitor: 消抖恢复 $package，已累计 ${accumulatedTime.inSeconds}s');
+        _currentPackage = package;
+        _currentSince = now.subtract(accumulatedTime);
+        // 保留触发状态和强制时间点
+        _previousPackage = null;
+        _switchedAt = null;
+        _accumulatedTime = null;
+        return;
+      }
+
+      // 非消抖情况：记录当前会话，开启新的连续会话。
+      if (_currentPackage != null && _currentSince != null) {
+        _previousPackage = _currentPackage;
+        _switchedAt = now;
+        _accumulatedTime = now.difference(_currentSince!);
+        debugPrint('[够了吗] Monitor: 离开 $_currentPackage，已使用 ${_accumulatedTime!.inSeconds}s');
+      }
+
+      debugPrint('[够了吗] Monitor: 切换到新应用 $package');
       _currentPackage = package;
       _currentSince = now;
       _sessionTriggered = false;
@@ -142,6 +186,7 @@ class ForegroundMonitor {
     // 2) 普通阈值触发：连续使用达到设置时长。
     if (!_sessionTriggered &&
         elapsed >= Duration(minutes: _settings.thresholdMinutes)) {
+      debugPrint('[够了吗] Monitor: 触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)');
       _sessionTriggered = true;
       _onTrigger(
         MonitorTriggerEvent(
@@ -149,6 +194,11 @@ class ForegroundMonitor {
           continuousSeconds: elapsed.inSeconds,
         ),
       );
+    } else if (!_sessionTriggered) {
+      // 未触发时也输出进度，方便调试
+      if (elapsed.inSeconds % 30 == 0) {  // 每30秒输出一次
+        debugPrint('[够了吗] Monitor: $package 已使用 ${elapsed.inSeconds}s / ${_settings.thresholdMinutes * 60}s');
+      }
     }
   }
 
@@ -161,13 +211,22 @@ class ForegroundMonitor {
 
     // 常见系统包/桌面，避免误判。
     const ignoredPrefixes = [
-      'android',
-      'com.android.systemui',
-      'com.google.android.apps.nexuslauncher',
-      'com.miui.home',
-      'com.huawei.android.launcher',
-      'com.oppo.launcher',
-      'com.vivo.launcher',
+      'com.android.systemui',          // Android 系统 UI
+      'com.android.launcher',          // 原生桌面
+      'com.google.android.apps.nexuslauncher',  // Pixel 桌面
+      'com.miui.home',                 // 小米桌面
+      'com.huawei.android.launcher',   // 华为桌面
+      'com.oppo.launcher',             // OPPO 桌面
+      'com.vivo.launcher',             // vivo 桌面
+      'com.samsung.android.app.launcher',  // 三星桌面
+      'com.meizu.flyme.launcher',      // 魅族桌面
+      'com.oneplus.launcher',          // 一加桌面
+      'com.realme.launcher',           // Realme 桌面
+      'com.transsion.hilauncher',      // 传音桌面
+      'com.teslacoilsw.launcher',      // Nova Launcher
+      'com.microsoft.launcher',        // Microsoft Launcher
+      'com.android.settings',          // 系统设置
+      'com.android.vending',           // Google Play
     ];
     return ignoredPrefixes.any(packageName.startsWith);
   }
@@ -178,5 +237,8 @@ class ForegroundMonitor {
     _sessionTriggered = false;
     _forcedTriggerAt = null;
     _suppressedUntil = null;
+    _previousPackage = null;
+    _switchedAt = null;
+    _accumulatedTime = null;
   }
 }

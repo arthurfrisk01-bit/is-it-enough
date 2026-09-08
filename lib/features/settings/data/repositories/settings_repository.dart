@@ -16,6 +16,7 @@ class SettingsRepository {
   static const _kThresholdMinutes = 'threshold_minutes';
   static const _kMonitoringEnabled = 'monitoring_enabled';
   static const _kBlacklistedApps = 'blacklisted_packages';
+  static const _kDebounceEnabled = 'debounce_enabled';
 
   /// 读取本地配置；任何字段缺失时使用默认值。
   AppConfig load() {
@@ -30,6 +31,7 @@ class SettingsRepository {
       thresholdMinutes: threshold,
       monitoringEnabled: _prefs.getBool(_kMonitoringEnabled) ?? true,
       blacklistedPackageNames: blacklist,
+      debounceEnabled: _prefs.getBool(_kDebounceEnabled) ?? true,
     );
   }
 
@@ -42,5 +44,6 @@ class SettingsRepository {
       _kBlacklistedApps,
       config.blacklistedPackageNames.toList()..sort(),
     );
+    await _prefs.setBool(_kDebounceEnabled, config.debounceEnabled);
   }
 }

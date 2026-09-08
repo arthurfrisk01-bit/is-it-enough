@@ -24,4 +24,7 @@ class AppConstants {
 
   /// 弱/强提醒默认模式。
   static const ReminderMode defaultReminderMode = ReminderMode.strong;
+
+  /// 消抖时间窗口：切换应用后在此时间内返回原应用，继续累计时间。
+  static const Duration debounceDuration = Duration(seconds: 30);
 }

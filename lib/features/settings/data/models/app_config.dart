@@ -10,6 +10,7 @@ class AppConfig {
     this.thresholdMinutes = AppConstants.defaultThresholdMinutes,
     this.monitoringEnabled = true,
     this.blacklistedPackageNames = const <String>{},
+    this.debounceEnabled = true,
   });
 
   /// 提醒强度：弱 / 强。
@@ -26,11 +27,15 @@ class AppConfig {
   /// MVP 先提供“黑名单/名单编辑”的存储结构，后续可扩展为白名单语义。
   final Set<String> blacklistedPackageNames;
 
+  /// 消抖开关：短暂切换其他应用30s内回到原应用继续计算提醒时间。
+  final bool debounceEnabled;
+
   AppConfig copyWith({
     ReminderMode? reminderMode,
     int? thresholdMinutes,
     bool? monitoringEnabled,
     Set<String>? blacklistedPackageNames,
+    bool? debounceEnabled,
   }) {
     return AppConfig(
       reminderMode: reminderMode ?? this.reminderMode,
@@ -38,6 +43,7 @@ class AppConfig {
       monitoringEnabled: monitoringEnabled ?? this.monitoringEnabled,
       blacklistedPackageNames:
           blacklistedPackageNames ?? this.blacklistedPackageNames,
+      debounceEnabled: debounceEnabled ?? this.debounceEnabled,
     );
   }
 }
