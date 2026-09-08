@@ -1,0 +1,45 @@
+name: is_it_enough
+description: "够了吗 (Is It Enough) - 温和打断无意识刷手机的跨平台数字健康应用。"
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 本地配置与统计存储（纯本地，不上传任何数据）
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.2
+  path: ^1.9.0
+
+  # Android 全局悬浮窗/Overlay
+  flutter_overlay_window: ^0.4.3
+
+  # Android 跳转系统设置 / 厂商权限页
+  android_intent_plus: ^5.1.0
+  permission_handler: ^11.3.1
+
+  # 通知辅助唤醒
+  flutter_local_notifications: ^16.3.2
+
+  # 触感反馈
+  vibration: ^3.2.1
+
+  # 读取 Android 厂商信息（后台自启/省电白名单跳转）
+  device_info_plus: ^11.5.0
+
+  # 应用状态管理（按需使用，MVP 阶段也可用 ValueNotifier 替代）
+  provider: ^6.1.1
+
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
