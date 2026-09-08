@@ -212,7 +212,7 @@ class _StrongReminderViewState extends State<StrongReminderView>
                                       ),
                                     ),
                                     onPressed: widget.onSnooze,
-                                    child: Text('再刷 ${widget.snoozeMinutes} 分钟'),
+                                    child: Text(widget.snoozeMinutes == 0 ? '再刷 30 秒' : '再刷 ${widget.snoozeMinutes} 分钟'),
                                   ),
                                 ),
                                 const SizedBox(height: 20),

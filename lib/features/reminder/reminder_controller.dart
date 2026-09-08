@@ -180,9 +180,16 @@ class ReminderController {
     await OverlayWindowService.hide();
     await NotificationReminderService().cancelReminder();
 
-    _monitor.snooze(Duration(minutes: minutes));
+    // 调试模式特殊处理：30秒后再次提醒
+    final snoozeDuration = _settings.debugMode 
+        ? const Duration(seconds: 30)
+        : Duration(minutes: minutes);
+    
+    _monitor.snooze(snoozeDuration);
     await _statistics.recordContinue();
-    _logger.info('再刷 $minutes 分钟（累计 $_snoozeCount 次）', tag: 'Reminder');
+    
+    final displayTime = _settings.debugMode ? '30 秒' : '$minutes 分钟';
+    _logger.info('再刷 $displayTime（累计 $_snoozeCount 次）', tag: 'Reminder');
   }
 
   /// 点击“现在放下”。
@@ -211,7 +218,12 @@ class ReminderController {
   /// 计算本次“再刷”分钟数。
   ///
   /// PRD：连续选择 > 3 次后，第 4 次起自动缩短为 2 分钟。
+  /// 调试模式下自动缩短为 30 秒（0.5 分钟）。
   int get _snoozeMinutes {
+    // 调试模式：30 秒后再次提醒
+    if (_settings.debugMode) return 0;  // Duration(minutes: 0) 会被特殊处理为30秒
+    
+    // 正常模式：5分钟或2分钟
     return _snoozeCount >= AppConstants.maxSnoozeCount
         ? AppConstants.shortenedSnoozeMinutes
         : 5;

@@ -186,7 +186,7 @@ class _WeakReminderViewState extends State<WeakReminderView>
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: widget.onSnooze,
-                        child: Text('再刷 ${widget.snoozeMinutes} 分钟'),
+                        child: Text(widget.snoozeMinutes == 0 ? '再刷 30 秒' : '再刷 ${widget.snoozeMinutes} 分钟'),
                       ),
                     ),
                     const SizedBox(width: 12),
