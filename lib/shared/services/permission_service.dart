@@ -21,6 +21,16 @@ class PermissionService {
   /// 是否已授予使用情况访问权限。
   Future<bool> hasUsageAccess() => _usageStats.isUsageAccessGranted();
 
+  /// 是否已授予悬浮窗权限（Android 6.0+）。
+  Future<bool> hasOverlayPermission() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      // 通过 Settings.canDrawOverlays() 或直接检查，这里简化为通过 PackageManager 查询。
+      // 实际实现需补充 MethodChannel。MVP 阶段先返回 false 强制跳转。
+      return false;
+    }
+    return true;
+  }
+
   /// 跳转系统“使用情况访问”授权页。
   Future<void> requestUsageAccess() async {
     final opened = await _usageStats.openUsageAccessSettings();

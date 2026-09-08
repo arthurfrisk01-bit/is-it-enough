@@ -12,6 +12,8 @@ import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.da
 import 'package:is_it_enough/features/reminder/in_app_reminder_page.dart';
 import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
+import 'package:is_it_enough/shared/services/statistics_service.dart';
+import 'package:is_it_enough/shared/services/logger_service.dart';
 
 /// 提醒控制器：把 [ForegroundMonitor] 的触发事件转为用户可见的提醒。
 ///
@@ -23,11 +25,15 @@ class ReminderController {
   ReminderController({
     required ForegroundMonitor monitor,
     required SettingsService settings,
+    required StatisticsService statistics,
   })  : _monitor = monitor,
-        _settings = settings;
+        _settings = settings,
+        _statistics = statistics;
 
   final ForegroundMonitor _monitor;
   final SettingsService _settings;
+  final StatisticsService _statistics;
+  final _logger = LoggerService();
 
   String? _activePackage;
   bool _showing = false;
@@ -68,7 +74,7 @@ class ReminderController {
   /// Overlay 子窗口通过 shareData 把用户操作回传主 App。
   Future<void> onOverlayAction(Map<dynamic, dynamic> data) async {
     final action = data['action'] as String?;
-    debugPrint('[够了吗] Overlay action: $action, data: $data');
+    _logger.info('Overlay action: $action', tag: 'ReminderController');
     switch (action) {
       case 'snooze':
         await snooze();
@@ -92,7 +98,8 @@ class ReminderController {
     await OverlayWindowService.hide();
 
     _monitor.snooze(Duration(minutes: minutes));
-    debugPrint('[够了吗] 再刷 $minutes 分钟（累计 $_snoozeCount 次）');
+    await _statistics.recordContinue();
+    _logger.info('再刷 $minutes 分钟（累计 $_snoozeCount 次）', tag: 'ReminderController');
   }
 
   /// 点击“现在放下”。
@@ -102,6 +109,9 @@ class ReminderController {
     _showing = false;
     await OverlayWindowService.hide();
     _monitor.resetSession();
+
+    await _statistics.recordPutDown();
+    _logger.info('现在放下', tag: 'ReminderController');
 
     // 打开全屏黑色呼吸引导页。
     final navigator = appNavigatorKey.currentState;
@@ -130,7 +140,7 @@ class ReminderController {
   ) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) {
-      debugPrint('[够了吗] 无法打开 App 内提醒：当前没有 Navigator');
+      _logger.warning('无法打开 App 内提醒：当前没有 Navigator', tag: 'ReminderController');
       return;
     }
 

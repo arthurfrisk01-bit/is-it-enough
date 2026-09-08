@@ -19,43 +19,27 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(AppConstants.appName),
-        actions: [
-          IconButton(
-            tooltip: '后续可扩展统计',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('统计模块将在后续版本加入')),
-              );
-            },
-            icon: const Icon(Icons.insights_outlined),
-          ),
-        ],
-      ),
-      body: Consumer<SettingsService>(
-        builder: (context, settings, _) {
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            children: [
-              _buildIntro(),
-              const SizedBox(height: 12),
-              _buildQuickStartCard(context),
-              const SizedBox(height: 12),
-              _buildMonitoringCard(context, settings),
-              const SizedBox(height: 12),
-              _buildModeCard(context, settings),
-              const SizedBox(height: 12),
-              _buildThresholdCard(context, settings),
-              const SizedBox(height: 12),
-              _buildBlacklistCard(context, settings),
-              const SizedBox(height: 12),
-              _buildPermissionCard(context),
-            ],
-          );
-        },
-      ),
+    return Consumer<SettingsService>(
+      builder: (context, settings, _) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: [
+            _buildIntro(),
+            const SizedBox(height: 12),
+            _buildQuickStartCard(context),
+            const SizedBox(height: 12),
+            _buildMonitoringCard(context, settings),
+            const SizedBox(height: 12),
+            _buildModeCard(context, settings),
+            const SizedBox(height: 12),
+            _buildThresholdCard(context, settings),
+            const SizedBox(height: 12),
+            _buildBlacklistCard(context, settings),
+            const SizedBox(height: 12),
+            _buildPermissionCard(context),
+          ],
+        );
+      },
     );
   }
 
