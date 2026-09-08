@@ -95,7 +95,7 @@ class NotificationReminderService {
         autoCancel: true,
         enableVibration: true,
         playSound: true,
-        sound: const RawResourceAndroidNotificationSound('notification_sound'),
+        // sound: const RawResourceAndroidNotificationSound('notification_sound'),
         vibrationPattern: strong 
             ? Int64List.fromList([0, 500, 200, 500])  // 强提醒震动更强
             : Int64List.fromList([0, 200, 100, 200]),  // 弱提醒震动轻柔
