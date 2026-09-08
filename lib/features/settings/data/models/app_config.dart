@@ -11,6 +11,7 @@ class AppConfig {
     this.monitoringEnabled = true,
     this.blacklistedPackageNames = const <String>{},
     this.debounceEnabled = true,
+    this.debugMode = false,
   });
 
   /// 提醒强度：弱 / 强。
@@ -30,12 +31,16 @@ class AppConfig {
   /// 消抖开关：短暂切换其他应用30s内回到原应用继续计算提醒时间。
   final bool debounceEnabled;
 
+  /// 调试模式：开启后提醒时间变为1分钟，日志全量输出。
+  final bool debugMode;
+
   AppConfig copyWith({
     ReminderMode? reminderMode,
     int? thresholdMinutes,
     bool? monitoringEnabled,
     Set<String>? blacklistedPackageNames,
     bool? debounceEnabled,
+    bool? debugMode,
   }) {
     return AppConfig(
       reminderMode: reminderMode ?? this.reminderMode,
@@ -44,6 +49,7 @@ class AppConfig {
       blacklistedPackageNames:
           blacklistedPackageNames ?? this.blacklistedPackageNames,
       debounceEnabled: debounceEnabled ?? this.debounceEnabled,
+      debugMode: debugMode ?? this.debugMode,
     );
   }
 }

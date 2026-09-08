@@ -36,6 +36,8 @@ class SettingsPage extends StatelessWidget {
             const SizedBox(height: 12),
             _buildBlacklistCard(context, settings),
             const SizedBox(height: 12),
+            _buildDebugSection(context, settings),
+            const SizedBox(height: 12),
             _buildPermissionCard(context),
           ],
         );
@@ -281,6 +283,23 @@ class SettingsPage extends StatelessWidget {
   }
 
   // ---------- 权限引导 ----------
+
+  Widget _buildDebugSection(BuildContext context, SettingsService settings) {
+    return _SectionCard(
+      title: '调试选项',
+      icon: Icons.bug_report_outlined,
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.developer_mode_outlined),
+        title: const Text('调试模式'),
+        subtitle: const Text('提醒时间变为1分钟，日志全量输出'),
+        trailing: Switch(
+          value: settings.debugMode,
+          onChanged: (v) => settings.setDebugMode(v),
+        ),
+      ),
+    );
+  }
 
   Widget _buildPermissionCard(BuildContext context) {
     final permissions = PermissionService();

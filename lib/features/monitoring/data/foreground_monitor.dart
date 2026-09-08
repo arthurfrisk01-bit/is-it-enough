@@ -184,8 +184,11 @@ class ForegroundMonitor {
     }
 
     // 2) 普通阈值触发：连续使用达到设置时长。
-    if (!_sessionTriggered &&
-        elapsed >= Duration(minutes: _settings.thresholdMinutes)) {
+    final effectiveThreshold = _settings.debugMode 
+        ? const Duration(minutes: 1) 
+        : Duration(minutes: _settings.thresholdMinutes);
+    
+    if (!_sessionTriggered && elapsed >= effectiveThreshold) {
       debugPrint('[够了吗] Monitor: 触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)');
       _sessionTriggered = true;
       _onTrigger(
@@ -195,9 +198,10 @@ class ForegroundMonitor {
         ),
       );
     } else if (!_sessionTriggered) {
-      // 未触发时也输出进度，方便调试
-      if (elapsed.inSeconds % 30 == 0) {  // 每30秒输出一次
-        debugPrint('[够了吗] Monitor: $package 已使用 ${elapsed.inSeconds}s / ${_settings.thresholdMinutes * 60}s');
+      // 调试模式：每5秒输出进度；正常模式：每30秒输出
+      final interval = _settings.debugMode ? 5 : 30;
+      if (elapsed.inSeconds % interval == 0) {
+        debugPrint('[够了吗] Monitor: $package 已使用 ${elapsed.inSeconds}s / ${effectiveThreshold.inSeconds}s');
       }
     }
   }

@@ -17,6 +17,7 @@ class SettingsRepository {
   static const _kMonitoringEnabled = 'monitoring_enabled';
   static const _kBlacklistedApps = 'blacklisted_packages';
   static const _kDebounceEnabled = 'debounce_enabled';
+  static const _kDebugMode = 'debug_mode';
 
   /// 读取本地配置；任何字段缺失时使用默认值。
   AppConfig load() {
@@ -32,6 +33,7 @@ class SettingsRepository {
       monitoringEnabled: _prefs.getBool(_kMonitoringEnabled) ?? true,
       blacklistedPackageNames: blacklist,
       debounceEnabled: _prefs.getBool(_kDebounceEnabled) ?? true,
+      debugMode: _prefs.getBool(_kDebugMode) ?? false,
     );
   }
 
@@ -45,5 +47,6 @@ class SettingsRepository {
       config.blacklistedPackageNames.toList()..sort(),
     );
     await _prefs.setBool(_kDebounceEnabled, config.debounceEnabled);
+    await _prefs.setBool(_kDebugMode, config.debugMode);
   }
 }

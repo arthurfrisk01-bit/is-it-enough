@@ -33,6 +33,7 @@ Future<void> main() async {
 
   // 全局日志服务单例。
   final logger = LoggerService();
+  logger.debugMode = settingsService.debugMode;
   logger.info('应用启动', tag: 'Main');
 
   // Android：启动前台应用轮询监听。
@@ -94,6 +95,12 @@ void _startAndroidMonitor(SettingsService settingsService, StatisticsService sta
   _androidMonitor = monitor;
   _reminderController = controller;
   monitor.start();
+  
+  // 监听 debugMode 变化，同步到 LoggerService
+  settingsService.addListener(() {
+    LoggerService().debugMode = settingsService.debugMode;
+  });
+  
   logger.info('Android UsageStats 轮询已启动，阈值=${settingsService.thresholdMinutes}分钟', tag: 'Main');
   debugPrint('[够了吗] Android UsageStats 轮询已启动，阈值=${settingsService.thresholdMinutes}分钟，监听=${settingsService.monitoringEnabled}');
 }

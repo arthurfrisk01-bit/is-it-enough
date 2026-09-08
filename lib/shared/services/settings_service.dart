@@ -21,6 +21,7 @@ class SettingsService extends ChangeNotifier {
   bool get monitoringEnabled => _config.monitoringEnabled;
   Set<String> get blacklistedPackageNames => _config.blacklistedPackageNames;
   bool get debounceEnabled => _config.debounceEnabled;
+  bool get debugMode => _config.debugMode;
 
   /// 应用启动时先同步读取一次本地配置。
   Future<void> load() async {
@@ -60,6 +61,11 @@ class SettingsService extends ChangeNotifier {
   /// 开启/关闭消抖功能。
   Future<void> setDebounceEnabled(bool enabled) async {
     await _update(_config.copyWith(debounceEnabled: enabled));
+  }
+
+  /// 开启/关闭调试模式。
+  Future<void> setDebugMode(bool enabled) async {
+    await _update(_config.copyWith(debugMode: enabled));
   }
 
   Future<void> _update(AppConfig next) async {

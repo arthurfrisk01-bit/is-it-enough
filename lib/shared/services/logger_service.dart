@@ -73,6 +73,14 @@ class LoggerService extends ChangeNotifier {
   final _logs = Queue<LogEntry>();
   static const _maxLogs = 500;
 
+  /// 调试模式：true 时所有级别日志都输出到 console。
+  bool _debugMode = false;
+  bool get debugMode => _debugMode;
+  set debugMode(bool value) {
+    _debugMode = value;
+    notifyListeners();
+  }
+
   /// 所有日志条目。
   List<LogEntry> get logs => _logs.toList();
 
@@ -103,7 +111,10 @@ class LoggerService extends ChangeNotifier {
     if (_logs.length > _maxLogs) {
       _logs.removeFirst();
     }
-    debugPrint(entry.toString());
+    // 调试模式：全量输出；正常模式：只输出 WARNING 及以上
+    if (_debugMode || level.priority >= LogLevel.warning.priority) {
+      debugPrint(entry.toString());
+    }
     notifyListeners();
   }
 
