@@ -109,15 +109,20 @@ class ForegroundMonitor {
 
     final package = await _usageStats.getForegroundPackage();
     if (package == null || package.isEmpty) {
-      logger.debug('无法获取前台包名', tag: 'Monitor');
-      _resetSession();
+      // 偶尔一次拿不到包名（系统/ROM 暂不返回）不应立刻清空会话：
+      // 与“切走”一样先停靠，消抖窗口内切回原应用可恢复累计。
+      logger.debug('无法获取前台包名，会话停靠等待消抖', tag: 'Monitor');
+      _parkSessionIfActive(DateTime.now());
       return;
     }
 
     // 系统/桌面/自身等不应参与“刷手机”判定。
     if (_shouldIgnore(package)) {
-      logger.debug('忽略包名 $package', tag: 'Monitor');
-      _resetSession();
+      // 关键修复：MIUI 等 ROM 上桌面(com.miui.home)/最近任务短暂覆盖会被误判为前台。
+      // 旧逻辑一见到系统包就 _resetSession()，一次误判清掉整段累计。
+      // 现在像“切走”一样停靠，30 秒内回到原应用由消抖逻辑恢复计时。
+      logger.debug('忽略包名 $package（会话停靠等待消抖）', tag: 'Monitor');
+      _parkSessionIfActive(DateTime.now());
       return;
     }
 
@@ -152,6 +157,12 @@ class ForegroundMonitor {
         _switchedAt = now;
         _accumulatedTime = now.difference(_currentSince!);
         logger.info('离开 $_currentPackage，已使用 ${_accumulatedTime!.inSeconds}s', tag: 'Monitor');
+      } else {
+        // 没有活跃会话（刚停靠过/首次启动）：清掉过期的停靠字段，
+        // 避免早前停靠的应用在很久之后被误判成消抖恢复目标。
+        _previousPackage = null;
+        _switchedAt = null;
+        _accumulatedTime = null;
       }
 
       logger.info('切换到新应用 $package', tag: 'Monitor');
@@ -235,6 +246,28 @@ class ForegroundMonitor {
       'com.android.vending',           // Google Play
     ];
     return ignoredPrefixes.any(packageName.startsWith);
+  }
+
+  /// 把当前活跃会话“停靠”起来（类似切走应用），等待消抖窗口内恢复。
+  ///
+  /// 保留触发状态/强制时刻/屏蔽期，恢复时原样带回；
+  /// 超过消抖窗口未回到原应用则视为会话结束（走普通切换分支开新会话）。
+  void _parkSessionIfActive(DateTime now) {
+    final currentPackage = _currentPackage;
+    final currentSince = _currentSince;
+    if (currentPackage == null || currentSince == null) return;
+
+    _previousPackage = currentPackage;
+    _switchedAt = now;
+    _accumulatedTime = now.difference(currentSince);
+    _currentPackage = null;
+    _currentSince = null;
+    // 注意：不清理 _sessionTriggered/_forcedTriggerAt/_suppressedUntil，
+    // 消抖恢复时需原样带回，否则已触发过的会话恢复后会重复提醒。
+    LoggerService().info(
+      '会话停靠 $currentPackage（已累计 ${_accumulatedTime!.inSeconds}s）',
+      tag: 'Monitor',
+    );
   }
 
   void _resetSession() {

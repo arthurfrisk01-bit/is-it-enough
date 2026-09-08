@@ -28,7 +28,8 @@ class UsageStatsBridge(
 
     companion object {
         private const val CHANNEL = "com.isitenough.app/usage_stats"
-        private const val LOOKBACK_WINDOW_MS = 2 * 60 * 1000L // 2 分钟
+        private const val LOOKBACK_WINDOW_MS = 2 * 60 * 1000L // 2 分钟（聚合法回退窗口）
+        private const val EVENT_LOOKBACK_MS = 60 * 60 * 1000L // 事件法查询窗口：1 小时
     }
 
     private val channel = MethodChannel(
@@ -91,11 +92,14 @@ class UsageStatsBridge(
     }
 
     /**
-     * 返回最近 2 分钟内在前台使用过的包名。
+     * 返回当前最可能位于前台的包名。
      *
-     * Android 不允许第三方 App 直接读取“当前”前台 Activity，
-     * 因此这里使用 UsageStatsManager 的常规替代方案：
-     * 查询最近 2 分钟的 usage stats，取 lastTimeUsed 最新的包名。
+     * 两段式推断：
+     * 1. 事件法（首选）：扫描 usage events，取“最近一次 ACTIVITY_RESUMED 且其后
+     *    没有 PAUSED/STOPPED”的包。这是真实的前台切换记录，不会像“取
+     *    lastTimeUsed 最大”那样被 MIUI 桌面/最近任务(com.miui.home)的短暂覆盖
+     *    带偏 —— 用户明明在刷微信却被判定成桌面，正是旧启发式的典型误判。
+     * 2. 聚合法（回退）：部分 ROM 不返回 events 时退回旧逻辑。
      */
     private fun getForegroundPackage(result: Result) {
         try {
@@ -107,8 +111,18 @@ class UsageStatsBridge(
             val usageStatsManager =
                 context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val now = System.currentTimeMillis()
-            val begin = now - LOOKBACK_WINDOW_MS
 
+            val eventForeground = inferForegroundFromEvents(
+                usageStatsManager,
+                now - EVENT_LOOKBACK_MS,
+                now,
+            )
+            if (eventForeground != null) {
+                result.success(eventForeground)
+                return
+            }
+
+            val begin = now - LOOKBACK_WINDOW_MS
             val stats = usageStatsManager.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
                 begin,
@@ -130,5 +144,34 @@ class UsageStatsBridge(
         } catch (e: Exception) {
             result.error("GET_FOREGROUND_FAILED", e.message, e.stackTraceToString())
         }
+    }
+
+    /**
+     * 事件法推断前台包名。
+     *
+     * 规则：最近一个 RESUME 的包为前台；该包出现 PAUSED/STOPPED 后视为离开
+     * （期间有新的 RESUME 则换人）。返回 null 表示窗口内无有效事件（例如用户
+     * 长时间停留在某应用、窗口内只有一次很早的 RESUME），由调用方回退聚合法。
+     */
+    private fun inferForegroundFromEvents(
+        usageStatsManager: UsageStatsManager,
+        begin: Long,
+        end: Long,
+    ): String? {
+        val events = usageStatsManager.queryEvents(begin, end)
+        val event = android.app.usage.UsageEvents.Event()
+        var current: String? = null
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val pkg = event.packageName ?: continue
+            when (event.eventType) {
+                android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> current = pkg
+                android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> {
+                    if (pkg == current) current = null
+                }
+            }
+        }
+        return current
     }
 }
