@@ -7,6 +7,7 @@ import 'package:is_it_enough/features/logs/log_viewer_page.dart';
 import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
+import 'package:is_it_enough/shared/services/permission_diagnosis_service.dart';
 import 'package:is_it_enough/shared/services/permission_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
 import 'package:provider/provider.dart';
@@ -312,6 +313,14 @@ class SettingsPage extends StatelessWidget {
             subtitle: const Text('测试系统通知、悬浮窗、App内页三重提醒'),
             onTap: () => _runReminderChannelTest(context, settings),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.verified_user_outlined),
+            title: const Text('权限深度诊断'),
+            subtitle: const Text('检查所有权限状态和通知通道创建情况'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => _runPermissionDiagnosis(context),
+          ),
         ],
       ),
     );
@@ -492,6 +501,126 @@ class SettingsPage extends StatelessWidget {
         Navigator.of(context).pop();
         messenger.showSnackBar(
           SnackBar(content: Text('自检失败: $e')),
+        );
+      }
+    }
+  }
+
+  /// 权限深度诊断：检查所有权限和通知通道创建状态。
+  Future<void> _runPermissionDiagnosis(BuildContext context) async {
+    final logger = LoggerService();
+    logger.info('=== 开始权限深度诊断 ===', tag: 'PermDiag');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text('正在检查所有权限和通知通道...')),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final diagService = PermissionDiagnosisService();
+      final report = await diagService.diagnose();
+
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // 关闭进度对话框
+
+      // 显示诊断报告
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                report.allOk
+                    ? Icons.check_circle_outline
+                    : report.hasError
+                        ? Icons.error_outline
+                        : Icons.warning_amber,
+                color: report.allOk
+                    ? Colors.green
+                    : report.hasError
+                        ? Colors.red
+                        : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              const Text('权限诊断报告'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '✅ ${report.okCount} 项正常  ⚠️ ${report.warningCount} 项警告  ❌ ${report.errorCount} 项错误',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const Divider(height: 20),
+                  ...report.items.map((item) {
+                    final icon = item.status == DiagnosisStatus.ok
+                        ? '✅'
+                        : item.status == DiagnosisStatus.warning
+                            ? '⚠️'
+                            : '❌';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$icon ${item.name}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            item.detail,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                          if (item.suggestion != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '💡 ${item.suggestion}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF9ED8C4),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      logger.error('权限诊断失败: $e', tag: 'PermDiag');
+      if (context.mounted) {
+        Navigator.of(context).pop(); // 关闭进度对话框
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('诊断失败: $e')),
         );
       }
     }
