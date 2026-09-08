@@ -401,6 +401,7 @@ class SettingsPage extends StatelessWidget {
       final notificationSent = await NotificationReminderService().showReminder(
         mode: settings.reminderMode,
         continuousMinutes: 999,  // 测试标记
+        appLabel: '测试应用',
       );
       logger.info('系统通知测试结果: ${notificationSent ? "成功" : "失败"}', tag: 'SelfTest');
       

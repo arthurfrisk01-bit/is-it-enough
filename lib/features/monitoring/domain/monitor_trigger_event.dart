@@ -5,10 +5,14 @@ class MonitorTriggerEvent {
   const MonitorTriggerEvent({
     required this.packageName,
     required this.continuousSeconds,
+    this.appLabel,
   });
 
   /// 当前被判定为“刷了太久”的应用包名。
   final String packageName;
+
+  /// 应用显示名称（如"微信"），未获取到时为 null。
+  final String? appLabel;
 
   /// 该应用本次连续前台秒数（仅用于统计/日志）。
   final int continuousSeconds;
@@ -16,5 +20,6 @@ class MonitorTriggerEvent {
   @override
   String toString() =>
       'MonitorTriggerEvent(packageName: $packageName, '
+      'appLabel: $appLabel, '
       'continuousSeconds: $continuousSeconds)';
 }

@@ -66,8 +66,10 @@ class ReminderController {
     final mode = _settings.reminderMode;
     final minutes = _snoozeMinutes;
     final continuousMinutes = (event.continuousSeconds / 60).ceil();
+    final appLabel = event.appLabel ?? event.packageName;
+    
     _logger.info(
-      '处理触发提醒 ${event.packageName}，'
+      '处理触发提醒 $appLabel (${event.packageName})，'
       'mode=${mode.storageKey}，已连续使用 $continuousMinutes 分钟',
       tag: 'Reminder',
     );
@@ -76,6 +78,7 @@ class ReminderController {
       await _showAndroidReminder(
         mode: mode,
         packageName: event.packageName,
+        appLabel: appLabel,
         snoozeMinutes: minutes,
         continuousMinutes: continuousMinutes,
       );
@@ -89,6 +92,7 @@ class ReminderController {
   Future<void> _showAndroidReminder({
     required ReminderMode mode,
     required String packageName,
+    required String appLabel,
     required int snoozeMinutes,
     required int continuousMinutes,
   }) async {
@@ -116,10 +120,10 @@ class ReminderController {
     }
 
     // 无论Overlay是否成功，都发送系统通知作为兜底（必达通道）
-    final notificationSent = await _sendNotificationSafely(mode, continuousMinutes);
+    final notificationSent = await _sendNotificationSafely(mode, continuousMinutes, appLabel);
 
     if (overlayOk) {
-      _logger.info('Overlay 已显示（${notificationSent ? "系统通知已兜底" : "通知发送失败"}）', tag: 'Reminder');
+      _logger.info('Overlay 已显示（${notificationSent ? "通知已发送" : "通知失败"}）', tag: 'Reminder');
       return;
     }
 
@@ -140,13 +144,13 @@ class ReminderController {
   }
 
   /// 安全发送系统通知，捕获所有异常并返回是否成功
-  Future<bool> _sendNotificationSafely(ReminderMode mode, int continuousMinutes) async {
+  Future<bool> _sendNotificationSafely(ReminderMode mode, int continuousMinutes, String appLabel) async {
     try {
-      await NotificationReminderService().showReminder(
+      return await NotificationReminderService().showReminder(
         mode: mode,
         continuousMinutes: continuousMinutes,
+        appLabel: appLabel,
       );
-      return true;
     } catch (e) {
       _logger.error('发送系统通知失败: $e', tag: 'Reminder');
       return false;

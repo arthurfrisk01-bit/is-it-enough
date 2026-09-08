@@ -44,4 +44,17 @@ class UsageStatsMethodChannel {
       return null;
     }
   }
+
+  /// 根据包名获取应用显示名称（ApplicationInfo.label）；未安装时返回 null。
+  Future<String?> getAppLabel(String packageName) async {
+    try {
+      return await _channel.invokeMethod<String?>(
+        'getAppLabel',
+        {'packageName': packageName},
+      );
+    } on PlatformException catch (e) {
+      debugPrint('[UsageStats] getAppLabel error: ${e.message}');
+      return null;
+    }
+  }
 }

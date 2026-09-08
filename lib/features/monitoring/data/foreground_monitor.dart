@@ -189,10 +189,12 @@ class ForegroundMonitor {
       _sessionTriggered = true;
       _forcedTriggerAt = null;  // 触发后清除，避免重复触发
       _suppressedUntil = null;
+      final appLabel = await _usageStats.getAppLabel(package);
       _onTrigger(
         MonitorTriggerEvent(
           packageName: package,
           continuousSeconds: elapsed.inSeconds,
+          appLabel: appLabel,
         ),
       );
       return;
@@ -206,10 +208,12 @@ class ForegroundMonitor {
     if (!_sessionTriggered && elapsed >= effectiveThreshold) {
       logger.warning('触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)', tag: 'Monitor');
       _sessionTriggered = true;
+      final appLabel = await _usageStats.getAppLabel(package);
       _onTrigger(
         MonitorTriggerEvent(
           packageName: package,
           continuousSeconds: elapsed.inSeconds,
+          appLabel: appLabel,
         ),
       );
     } else if (!_sessionTriggered) {

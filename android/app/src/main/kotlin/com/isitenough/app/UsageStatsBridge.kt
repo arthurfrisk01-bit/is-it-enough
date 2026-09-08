@@ -50,6 +50,7 @@ class UsageStatsBridge(
             "isUsageAccessGranted" -> result.success(isUsageAccessGranted())
             "openUsageAccessSettings" -> openUsageAccessSettings(result)
             "getForegroundPackage" -> getForegroundPackage(result)
+            "getAppLabel" -> getAppLabel(call, result)
             else -> result.notImplemented()
         }
     }
@@ -173,5 +174,25 @@ class UsageStatsBridge(
             }
         }
         return current
+    }
+
+    /** 获取应用名称（通过包名查询 ApplicationInfo）。 */
+    private fun getAppLabel(call: MethodCall, result: Result) {
+        try {
+            val packageName = call.argument<String>("packageName")
+            if (packageName.isNullOrEmpty()) {
+                result.error("INVALID_ARGUMENT", "packageName is required", null)
+                return
+            }
+
+            val pm = context.packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            val label = pm.getApplicationLabel(appInfo).toString()
+            result.success(label)
+        } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+            result.success(null)  // 应用未安装，返回null
+        } catch (e: Exception) {
+            result.error("GET_APP_LABEL_FAILED", e.message, e.stackTraceToString())
+        }
     }
 }

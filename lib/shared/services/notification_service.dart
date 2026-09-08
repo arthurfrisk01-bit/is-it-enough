@@ -61,6 +61,7 @@ class NotificationReminderService {
   Future<bool> showReminder({
     required ReminderMode mode,
     required int continuousMinutes,
+    required String appLabel,
   }) async {
     if (kIsWeb || !Platform.isAndroid) return false;
 
@@ -79,6 +80,9 @@ class NotificationReminderService {
     final strong = mode == ReminderMode.strong;
 
     try {
+      final title = strong ? '够了吗？' : '提醒';
+      final body = '你在 $appLabel 上已经使用了 $continuousMinutes 分钟';
+      
       final details = AndroidNotificationDetails(
         strong ? _strongChannelId : _weakChannelId,
         strong ? '强提醒（全屏打断）' : '弱提醒（轻量提示）',
@@ -96,11 +100,9 @@ class NotificationReminderService {
             ? Int64List.fromList([0, 500, 200, 500])  // 强提醒震动更强
             : Int64List.fromList([0, 200, 100, 200]),  // 弱提醒震动轻柔
         styleInformation: BigTextStyleInformation(
-          strong
-              ? '你已经连续刷了 $continuousMinutes 分钟。深呼吸，把手机放下片刻。'
-              : '连续使用时间不短了，注意让眼睛和脖子歇一歇。',
+          body,
           htmlFormatBigText: true,
-          contentTitle: strong ? '够了吗：先放下手机' : '够了吗：该休息一下了',
+          contentTitle: title,
           htmlFormatContentTitle: true,
           summaryText: '数字健康提醒',
         ),
@@ -112,14 +114,12 @@ class NotificationReminderService {
 
       await _plugin.show(
         _reminderNotificationId,
-        strong ? '够了吗：先放下手机' : '够了吗：该休息一下了',
-        strong
-            ? '你已经连续刷了 $continuousMinutes 分钟。深呼吸，把手机放下片刻。'
-            : '连续使用时间不短了，注意让眼睛和脖子歇一歇。',
+        title,
+        body,
         NotificationDetails(android: details),
         payload: 'reminder',
       );
-      logger.info('系统通知已发送（${strong ? "强" : "弱"}）', tag: 'Notification');
+      logger.info('系统通知已发送（${strong ? "强" : "弱"}）- $appLabel', tag: 'Notification');
       return true;
     } catch (e) {
       logger.error('发送系统通知失败: $e', tag: 'Notification');
