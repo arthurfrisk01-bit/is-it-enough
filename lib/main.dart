@@ -13,6 +13,7 @@ import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel
 import 'package:is_it_enough/features/reminder/reminder_controller.dart';
 import 'package:is_it_enough/features/settings/data/repositories/settings_repository.dart';
 import 'package:is_it_enough/features/settings/data/repositories/statistics_repository.dart';
+import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
 import 'package:is_it_enough/shared/services/statistics_service.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
@@ -35,6 +36,9 @@ Future<void> main() async {
   final logger = LoggerService();
   logger.debugMode = settingsService.debugMode;
   logger.info('应用启动', tag: 'Main');
+
+  // 初始化系统通知通道（Overlay 拉不起来时的兜底提醒通道）。
+  await NotificationReminderService().init();
 
   // Android：启动前台应用轮询监听。
   // iOS：按 PRD 不启用后台监听,只保留"用户主动开启计时器"模式。

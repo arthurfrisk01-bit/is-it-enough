@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';

@@ -20,6 +20,9 @@
     <!-- Android 13+ 通知权限，辅助提醒/后台保活通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 强提醒全屏通知（Overlay 不可用时的系统级全屏打断兜底） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- 开机自启（可选，用于重启后恢复监听） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

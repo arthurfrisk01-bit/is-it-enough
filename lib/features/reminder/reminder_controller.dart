@@ -11,6 +11,7 @@ import 'package:is_it_enough/features/monitoring/data/foreground_monitor.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
 import 'package:is_it_enough/features/reminder/in_app_reminder_page.dart';
 import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
+import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
 import 'package:is_it_enough/shared/services/statistics_service.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
@@ -21,6 +22,17 @@ import 'package:is_it_enough/shared/services/logger_service.dart';
 /// - 根据设置页的“弱提醒/强提醒”选择呈现方式；
 /// - 维护“再刷 5 分钟 -> 连续 3 次后缩为 2 分钟”的计数逻辑；
 /// - 点击“现在放下”后进入呼吸引导页。
+///
+/// ## 呈现链路（按优先级，全部失败也有兜底）
+///
+/// Overlay 服务只能在“触发那一刻”从后台拉起，Android 12+ / 国产 ROM 可能
+/// 静默丢弃，导致历史版本“日志有触发、用户无提醒”。因此这里不再只赌
+/// Overlay 一条路：
+///
+/// 1. 有悬浮窗权限 → 先尝试 Overlay，600ms 后用 `isOverlayActive` 复核；
+/// 2. Overlay 未授权或启动失败 → 立即打开 App 内提醒页 + 发一条系统通知
+///    （强提醒=全屏 intent，弱提醒=Heads-up，后台必达）；
+/// 3. 每一步的成败都写入应用日志页，方便定位。
 class ReminderController {
   ReminderController({
     required ForegroundMonitor monitor,
@@ -46,6 +58,7 @@ class ReminderController {
   Future<void> handleTrigger(MonitorTriggerEvent event) async {
     if (_showing && _activePackage == event.packageName) {
       // 同一会话已经展示，避免重复弹窗。
+      _logger.debug('同一会话已展示提醒，跳过', tag: 'Reminder');
       return;
     }
 
@@ -55,26 +68,77 @@ class ReminderController {
 
     final mode = _settings.reminderMode;
     final minutes = _snoozeMinutes;
+    final continuousMinutes = (event.continuousSeconds / 60).ceil();
+    _logger.info(
+      '处理触发提醒 ${event.packageName}，'
+      'mode=${mode.storageKey}，已连续使用 $continuousMinutes 分钟',
+      tag: 'Reminder',
+    );
 
-    // Android + 有悬浮窗权限 -> 全局 Overlay。
-    // 其余情况（iOS / 未授权 / 桌面预览）回退到 App 内全屏/顶部页面。
-    if (!kIsWeb && Platform.isAndroid &&
-        await OverlayWindowService.isPermissionGranted()) {
-      await OverlayWindowService.sendReminderData(
-        mode: mode.storageKey,
+    if (!kIsWeb && Platform.isAndroid) {
+      await _showAndroidReminder(
+        mode: mode,
         packageName: event.packageName,
         snoozeMinutes: minutes,
+        continuousMinutes: continuousMinutes,
       );
-      await OverlayWindowService.show();
     } else {
+      // iOS / 桌面预览：直接 App 内提醒（无后台 Overlay 概念）。
       _openInAppReminder(mode, event.packageName, minutes);
     }
+  }
+
+  /// Android 呈现链路：Overlay → 失败则 通知 + App 内页。
+  Future<void> _showAndroidReminder({
+    required ReminderMode mode,
+    required String packageName,
+    required int snoozeMinutes,
+    required int continuousMinutes,
+  }) async {
+    var overlayOk = false;
+
+    final granted = await OverlayWindowService.isPermissionGranted();
+    _logger.info('悬浮窗权限: $granted', tag: 'Reminder');
+
+    if (granted) {
+      try {
+        await OverlayWindowService.sendReminderData(
+          mode: mode.storageKey,
+          packageName: packageName,
+          snoozeMinutes: snoozeMinutes,
+        );
+        await OverlayWindowService.show();
+
+        // Overlay 服务从后台拉起是异步且可能被系统丢弃，稍等后复核。
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        overlayOk = await OverlayWindowService.isActive();
+      } catch (e) {
+        _logger.error('Overlay 展示异常: $e', tag: 'Reminder');
+        overlayOk = false;
+      }
+    }
+
+    if (overlayOk) {
+      _logger.info('Overlay 已显示', tag: 'Reminder');
+      return;
+    }
+
+    // Overlay 不可用（无权限 / 被系统拦截）：通知兜底 + App 内页。
+    _logger.warning(
+      'Overlay 未生效（权限=$granted），改用系统通知 + App 内提醒',
+      tag: 'Reminder',
+    );
+    _openInAppReminder(mode, packageName, snoozeMinutes);
+    await NotificationReminderService().showReminder(
+      mode: mode,
+      continuousMinutes: continuousMinutes,
+    );
   }
 
   /// Overlay 子窗口通过 shareData 把用户操作回传主 App。
   Future<void> onOverlayAction(Map<dynamic, dynamic> data) async {
     final action = data['action'] as String?;
-    _logger.info('Overlay action: $action', tag: 'ReminderController');
+    _logger.info('Overlay action: $action', tag: 'Reminder');
     switch (action) {
       case 'snooze':
         await snooze();
@@ -95,11 +159,13 @@ class ReminderController {
     final minutes = _snoozeMinutes;
 
     _showing = false;
+    _activePackage = null;
     await OverlayWindowService.hide();
+    await NotificationReminderService().cancelReminder();
 
     _monitor.snooze(Duration(minutes: minutes));
     await _statistics.recordContinue();
-    _logger.info('再刷 $minutes 分钟（累计 $_snoozeCount 次）', tag: 'ReminderController');
+    _logger.info('再刷 $minutes 分钟（累计 $_snoozeCount 次）', tag: 'Reminder');
   }
 
   /// 点击“现在放下”。
@@ -107,11 +173,13 @@ class ReminderController {
     if (!_showing) return;
 
     _showing = false;
+    _activePackage = null;
     await OverlayWindowService.hide();
+    await NotificationReminderService().cancelReminder();
     _monitor.resetSession();
 
     await _statistics.recordPutDown();
-    _logger.info('现在放下', tag: 'ReminderController');
+    _logger.info('现在放下', tag: 'Reminder');
 
     // 打开全屏黑色呼吸引导页。
     final navigator = appNavigatorKey.currentState;
@@ -133,15 +201,15 @@ class ReminderController {
         : 5;
   }
 
-  void _openInAppReminder(
+  bool _openInAppReminder(
     ReminderMode mode,
     String packageName,
     int minutes,
   ) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) {
-      _logger.warning('无法打开 App 内提醒：当前没有 Navigator', tag: 'ReminderController');
-      return;
+      _logger.warning('无法打开 App 内提醒：当前没有 Navigator', tag: 'Reminder');
+      return false;
     }
 
     navigator.push(
@@ -162,5 +230,6 @@ class ReminderController {
         ),
       ),
     );
+    return true;
   }
 }

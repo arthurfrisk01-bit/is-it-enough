@@ -1,20 +1,24 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
+import 'package:is_it_enough/shared/services/logger_service.dart';
 
 /// 对 `flutter_overlay_window` 的轻封装。
 ///
 /// 主要隔离插件 API，方便后续：
 /// - 增加弱/强提醒的不同 Overlay 尺寸；
 /// - 在无法使用全局悬浮窗的平台上回退到 App 内全屏页面。
+///
+/// 所有失败路径都会写入 [LoggerService]，确保应用日志页可见（不再静默吞错）。
 class OverlayWindowService {
   const OverlayWindowService._();
+
+  static final _logger = LoggerService();
 
   /// 是否已授予悬浮窗权限。
   static Future<bool> isPermissionGranted() async {
     try {
       return await FlutterOverlayWindow.isPermissionGranted();
     } catch (e) {
-      debugPrint('[Overlay] isPermissionGranted error: $e');
+      _logger.error('悬浮窗权限检测失败: $e', tag: 'Overlay');
       return false;
     }
   }
@@ -24,20 +28,37 @@ class OverlayWindowService {
     try {
       return (await FlutterOverlayWindow.requestPermission()) ?? false;
     } catch (e) {
-      debugPrint('[Overlay] requestPermission error: $e');
+      _logger.error('请求悬浮窗权限失败: $e', tag: 'Overlay');
+      return false;
+    }
+  }
+
+  /// Overlay 服务当前是否真的在运行（后台拉起前台服务可能被系统静默丢弃，
+  /// show() 成功不代表窗口真的出现，必须用这个状态二次确认）。
+  static Future<bool> isActive() async {
+    try {
+      return await FlutterOverlayWindow.isActive();
+    } catch (e) {
+      _logger.debug('查询 Overlay 状态失败: $e', tag: 'Overlay');
       return false;
     }
   }
 
   /// 展示全局 Overlay。
   ///
-  /// 注意：不同 Overlay 模式建议使用不同尺寸，这里保留扩展点；
-  /// 具体 resize 取决于 `flutter_overlay_window` 当前版本 API。
-  static Future<void> show() async {
+  /// Overlay 会伴随一条前台服务通知，默认文案为插件自带的英文
+  /// “overlay activated”，这里改成中文。
+  static Future<void> show({
+    String? overlayTitle,
+    String? overlayContent,
+  }) async {
     try {
-      await FlutterOverlayWindow.showOverlay();
+      await FlutterOverlayWindow.showOverlay(
+        overlayTitle: overlayTitle ?? '够了吗：提醒服务运行中',
+        overlayContent: overlayContent ?? '点击返回够了吗',
+      );
     } catch (e) {
-      debugPrint('[Overlay] show error: $e');
+      _logger.error('Overlay show 失败: $e', tag: 'Overlay');
       rethrow;
     }
   }
@@ -47,7 +68,7 @@ class OverlayWindowService {
     try {
       await FlutterOverlayWindow.closeOverlay();
     } catch (e) {
-      debugPrint('[Overlay] close error: $e');
+      _logger.debug('Overlay close 失败: $e', tag: 'Overlay');
     }
   }
 
@@ -69,7 +90,7 @@ class OverlayWindowService {
     try {
       await FlutterOverlayWindow.shareData(data);
     } catch (e) {
-      debugPrint('[Overlay] shareData error: $e');
+      _logger.error('Overlay shareData 失败: $e', tag: 'Overlay');
     }
   }
 }
