@@ -55,3 +55,6 @@ app.*.map.json
 .gradle/
 .home/
 deploy/
+deploy/
+website/
+is-it-enough-website.tar.gz
