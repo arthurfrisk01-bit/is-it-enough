@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
@@ -55,27 +56,58 @@ class NotificationReminderService {
   }
 
   /// 触发提醒时调用：无论悬浮窗是否可用，都补发一条系统通知。
-  Future<void> showReminder({
+  /// 
+  /// 返回是否成功发送（用于上层判断兜底策略）。
+  Future<bool> showReminder({
     required ReminderMode mode,
     required int continuousMinutes,
   }) async {
-    if (!_initialized) return;
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return false;
 
     final logger = LoggerService();
+    
+    // 如果未初始化，尝试紧急初始化一次
+    if (!_initialized) {
+      logger.warning('通知服务未初始化，尝试紧急初始化', tag: 'Notification');
+      await init();
+      if (!_initialized) {
+        logger.fatal('通知服务紧急初始化失败，无法发送通知', tag: 'Notification');
+        return false;
+      }
+    }
+
     final strong = mode == ReminderMode.strong;
 
     try {
       final details = AndroidNotificationDetails(
         strong ? _strongChannelId : _weakChannelId,
-        strong ? '强提醒（全屏）' : '弱提醒',
-        channelDescription: strong ? '全屏打断提醒' : '轻提醒横幅',
+        strong ? '强提醒（全屏打断）' : '弱提醒（轻量提示）',
+        channelDescription: strong ? '全屏打断提醒，点亮屏幕' : '轻提醒横幅，不打断操作',
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.reminder,
         fullScreenIntent: strong,
-        onlyAlertOnce: true,
+        onlyAlertOnce: false,  // 每次都提醒，确保不被静音
         autoCancel: true,
+        enableVibration: true,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('notification_sound'),
+        vibrationPattern: strong 
+            ? Int64List.fromList([0, 500, 200, 500])  // 强提醒震动更强
+            : Int64List.fromList([0, 200, 100, 200]),  // 弱提醒震动轻柔
+        styleInformation: BigTextStyleInformation(
+          strong
+              ? '你已经连续刷了 $continuousMinutes 分钟。深呼吸，把手机放下片刻。'
+              : '连续使用时间不短了，注意让眼睛和脖子歇一歇。',
+          htmlFormatBigText: true,
+          contentTitle: strong ? '够了吗：先放下手机' : '够了吗：该休息一下了',
+          htmlFormatContentTitle: true,
+          summaryText: '数字健康提醒',
+        ),
+        color: const Color(0xFF9ED8C4),
+        ledColor: const Color(0xFF9ED8C4),
+        ledOnMs: 1000,
+        ledOffMs: 500,
       );
 
       await _plugin.show(
@@ -88,8 +120,10 @@ class NotificationReminderService {
         payload: 'reminder',
       );
       logger.info('系统通知已发送（${strong ? "强" : "弱"}）', tag: 'Notification');
+      return true;
     } catch (e) {
       logger.error('发送系统通知失败: $e', tag: 'Notification');
+      return false;
     }
   }
 

@@ -95,6 +95,9 @@ class _LogEntryTile extends StatelessWidget {
       case LogLevel.error:
         levelColor = Colors.red;
         break;
+      case LogLevel.fatal:
+        levelColor = Colors.purple;
+        break;
     }
 
     return Card(

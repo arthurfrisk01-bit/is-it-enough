@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
+import 'package:is_it_enough/core/navigation/app_navigator.dart';
 import 'package:is_it_enough/features/breathing/breathing_page.dart';
+import 'package:is_it_enough/features/logs/log_viewer_page.dart';
+import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
+import 'package:is_it_enough/shared/services/logger_service.dart';
+import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/permission_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
 import 'package:provider/provider.dart';
@@ -288,15 +293,26 @@ class SettingsPage extends StatelessWidget {
     return _SectionCard(
       title: '调试选项',
       icon: Icons.bug_report_outlined,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.developer_mode_outlined),
-        title: const Text('调试模式'),
-        subtitle: const Text('提醒时间变为1分钟，日志全量输出'),
-        trailing: Switch(
-          value: settings.debugMode,
-          onChanged: (v) => settings.setDebugMode(v),
-        ),
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.developer_mode_outlined),
+            title: const Text('调试模式'),
+            subtitle: const Text('提醒时间变为1分钟，日志全量输出'),
+            trailing: Switch(
+              value: settings.debugMode,
+              onChanged: (v) => settings.setDebugMode(v),
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.fact_check_outlined),
+            title: const Text('提醒通道自检'),
+            subtitle: const Text('测试系统通知、悬浮窗、App内页三重提醒'),
+            onTap: () => _runReminderChannelTest(context, settings),
+          ),
+        ],
       ),
     );
   }
@@ -354,6 +370,129 @@ class SettingsPage extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('打开失败：$e')),
       );
+    }
+  }
+
+  /// 提醒通道自检：测试三重提醒是否正常
+  Future<void> _runReminderChannelTest(BuildContext context, SettingsService settings) async {
+    final logger = LoggerService();
+    final messenger = ScaffoldMessenger.of(context);
+    
+    logger.info('=== 开始提醒通道自检 ===', tag: 'SelfTest');
+    
+    // 显示进度对话框
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text('测试提醒通道...'),
+          ],
+        ),
+      ),
+    );
+    
+    try {
+      // 1. 测试系统通知
+      logger.info('1/3 测试系统通知通道', tag: 'SelfTest');
+      final notificationSent = await NotificationReminderService().showReminder(
+        mode: settings.reminderMode,
+        continuousMinutes: 999,  // 测试标记
+      );
+      logger.info('系统通知测试结果: ${notificationSent ? "成功" : "失败"}', tag: 'SelfTest');
+      
+      // 2. 测试悬浮窗权限
+      logger.info('2/3 检查悬浮窗权限', tag: 'SelfTest');
+      final overlayGranted = await OverlayWindowService.isPermissionGranted();
+      logger.info('悬浮窗权限: ${overlayGranted ? "已授予" : "未授予"}', tag: 'SelfTest');
+      
+      // 3. 测试App内页
+      logger.info('3/3 测试App内提醒页', tag: 'SelfTest');
+      final hasNavigator = appNavigatorKey.currentState != null;
+      logger.info('Navigator可用: $hasNavigator', tag: 'SelfTest');
+      
+      logger.info('=== 自检完成 ===', tag: 'SelfTest');
+      
+      // 关闭进度对话框
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      // 生成报告
+      final report = StringBuffer();
+      report.writeln('提醒通道自检报告：\n');
+      report.writeln('✓ 系统通知：${notificationSent ? "✅ 正常" : "❌ 失败"}');
+      report.writeln('✓ 悬浮窗权限：${overlayGranted ? "✅ 已授予" : "❌ 未授予"}');
+      report.writeln('✓ App内页：${hasNavigator ? "✅ 可用" : "❌ 不可用"}');
+      report.writeln('\n建议：');
+      if (!notificationSent) {
+        report.writeln('• 请在系统设置中授予通知权限');
+      }
+      if (!overlayGranted) {
+        report.writeln('• 请在下方"悬浮窗权限"中授权');
+      }
+      if (notificationSent || overlayGranted || hasNavigator) {
+        report.writeln('• 至少有一个提醒通道可用，正常');
+      } else {
+        logger.fatal('所有提醒通道均不可用！', tag: 'SelfTest');
+        report.writeln('• ⚠️ 所有通道均不可用，请检查权限');
+      }
+      
+      // 显示结果对话框
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('自检报告'),
+            content: SingleChildScrollView(
+              child: Text(
+                report.toString(),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  // 打开日志页查看详细信息
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LogViewerPage(),
+                    ),
+                  );
+                },
+                child: const Text('查看日志'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        );
+      }
+      
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            notificationSent || overlayGranted 
+                ? '自检完成：至少有一个通道可用' 
+                : '自检完成：所有通道不可用，请检查权限',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      logger.error('自检异常: $e', tag: 'SelfTest');
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        messenger.showSnackBar(
+          SnackBar(content: Text('自检失败: $e')),
+        );
+      }
     }
   }
 }

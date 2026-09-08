@@ -48,23 +48,20 @@ class ReminderController {
   final _logger = LoggerService();
 
   String? _activePackage;
-  bool _showing = false;
   int _snoozeCount = 0;
 
-  /// 当前是否正在展示提醒。
-  bool get isShowing => _showing;
+  /// 当前是否正在展示提醒（用于统计，未用于拦截）。
+  bool get isShowing => _activePackage != null;
 
   /// 监听器触发时调用。
   Future<void> handleTrigger(MonitorTriggerEvent event) async {
-    if (_showing && _activePackage == event.packageName) {
-      // 同一会话已经展示，避免重复弹窗。
-      _logger.debug('同一会话已展示提醒，跳过', tag: 'Reminder');
-      return;
-    }
+    // 注意：不再使用 _showing 标志阻止重复提醒。
+    // 原有逻辑在 Overlay/App内页被用户手动关闭（不点按钮）时会导致
+    // _showing 永远为 true，后续提醒全被静默拦截。
+    // 改由 ForegroundMonitor 的 _sessionTriggered 标志控制同一会话的重复提醒。
 
     _activePackage = event.packageName;
     _snoozeCount = 0;
-    _showing = true;
 
     final mode = _settings.reminderMode;
     final minutes = _snoozeMinutes;
@@ -118,21 +115,42 @@ class ReminderController {
       }
     }
 
+    // 无论Overlay是否成功，都发送系统通知作为兜底（必达通道）
+    final notificationSent = await _sendNotificationSafely(mode, continuousMinutes);
+
     if (overlayOk) {
-      _logger.info('Overlay 已显示', tag: 'Reminder');
+      _logger.info('Overlay 已显示（${notificationSent ? "系统通知已兜底" : "通知发送失败"}）', tag: 'Reminder');
       return;
     }
 
-    // Overlay 不可用（无权限 / 被系统拦截）：通知兜底 + App 内页。
+    // Overlay 不可用（无权限 / 被系统拦截）：打开 App 内页作为备用。
     _logger.warning(
-      'Overlay 未生效（权限=$granted），改用系统通知 + App 内提醒',
+      'Overlay 未生效（权限=$granted），${notificationSent ? "已发送通知" : "通知失败"}，尝试打开 App 内提醒',
       tag: 'Reminder',
     );
-    _openInAppReminder(mode, packageName, snoozeMinutes);
-    await NotificationReminderService().showReminder(
-      mode: mode,
-      continuousMinutes: continuousMinutes,
-    );
+    final appPageOpened = _openInAppReminder(mode, packageName, snoozeMinutes);
+    
+    // 如果所有提醒通道都失败，强制记录严重错误
+    if (!notificationSent && !appPageOpened) {
+      _logger.fatal(
+        '所有提醒通道失败：通知=$notificationSent, Overlay=$granted, App内页=$appPageOpened',
+        tag: 'Reminder',
+      );
+    }
+  }
+
+  /// 安全发送系统通知，捕获所有异常并返回是否成功
+  Future<bool> _sendNotificationSafely(ReminderMode mode, int continuousMinutes) async {
+    try {
+      await NotificationReminderService().showReminder(
+        mode: mode,
+        continuousMinutes: continuousMinutes,
+      );
+      return true;
+    } catch (e) {
+      _logger.error('发送系统通知失败: $e', tag: 'Reminder');
+      return false;
+    }
   }
 
   /// Overlay 子窗口通过 shareData 把用户操作回传主 App。
@@ -153,12 +171,11 @@ class ReminderController {
 
   /// 点击“再刷 X 分钟”。
   Future<void> snooze() async {
-    if (!_showing) return;
+    if (_activePackage == null) return;
 
     _snoozeCount += 1;
     final minutes = _snoozeMinutes;
 
-    _showing = false;
     _activePackage = null;
     await OverlayWindowService.hide();
     await NotificationReminderService().cancelReminder();
@@ -170,9 +187,8 @@ class ReminderController {
 
   /// 点击“现在放下”。
   Future<void> putDown() async {
-    if (!_showing) return;
+    if (_activePackage == null) return;
 
-    _showing = false;
     _activePackage = null;
     await OverlayWindowService.hide();
     await NotificationReminderService().cancelReminder();

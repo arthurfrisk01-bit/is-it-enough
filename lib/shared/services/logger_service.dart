@@ -7,7 +7,8 @@ enum LogLevel {
   debug,
   info,
   warning,
-  error;
+  error,
+  fatal;
 
   int get priority {
     switch (this) {
@@ -19,6 +20,8 @@ enum LogLevel {
         return 2;
       case LogLevel.error:
         return 3;
+      case LogLevel.fatal:
+        return 4;
     }
   }
 }
@@ -54,6 +57,8 @@ class LogEntry {
         return 'WARN';
       case LogLevel.error:
         return 'ERROR';
+      case LogLevel.fatal:
+        return 'FATAL';
     }
   }
 
@@ -99,6 +104,8 @@ class LoggerService extends ChangeNotifier {
       _log(LogLevel.warning, message, tag: tag);
   void error(String message, {String? tag}) =>
       _log(LogLevel.error, message, tag: tag);
+  void fatal(String message, {String? tag}) =>
+      _log(LogLevel.fatal, message, tag: tag);
 
   void _log(LogLevel level, String message, {String? tag}) {
     final entry = LogEntry(

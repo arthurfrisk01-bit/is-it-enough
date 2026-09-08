@@ -187,6 +187,8 @@ class ForegroundMonitor {
     if (forcedAt != null && !now.isBefore(forcedAt)) {
       logger.warning('强制提醒 $package (再刷时间到)', tag: 'Monitor');
       _sessionTriggered = true;
+      _forcedTriggerAt = null;  // 触发后清除，避免重复触发
+      _suppressedUntil = null;
       _onTrigger(
         MonitorTriggerEvent(
           packageName: package,

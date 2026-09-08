@@ -2,6 +2,7 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:is_it_enough/features/breathing/breathing_painter.dart';
+import 'package:vibration/vibration.dart';
 
 /// 强提醒：全屏毛玻璃遮罩 + 呼吸动画，强力中断当前操作。
 ///
@@ -35,6 +36,22 @@ class _StrongReminderViewState extends State<StrongReminderView>
       vsync: this,
       duration: BreathingPainter.cycleDuration,
     )..repeat();
+    _triggerVibration();
+  }
+
+  Future<void> _triggerVibration() async {
+    try {
+      // 触发提醒时震动提示（强提醒专属）
+      final hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator == true) {
+        Vibration.vibrate(
+          pattern: [0, 400, 200, 400],
+          intensities: [0, 200, 0, 255],
+        );
+      }
+    } catch (e) {
+      // 震动失败不阻断提醒
+    }
   }
 
   @override
@@ -85,75 +102,132 @@ class _StrongReminderViewState extends State<StrongReminderView>
                       const Spacer(flex: 2),
 
                       // 标题区。
-                      const Text(
-                        '够了吗',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 46,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 4,
-                        ),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 1200),
+                        curve: Curves.easeOut,
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: 0.7 + (value * 0.3),
+                            child: Opacity(
+                              opacity: value,
+                              child: const Text(
+                                '够了吗',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 6,
+                                  shadows: [
+                                    Shadow(
+                                      color: Color(0xFF9ED8C4),
+                                      blurRadius: 24,
+                                      offset: Offset(0, 0),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '你已经在 ${widget.packageName} 上停留太久',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.65),
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '先停一下，跟随圆环呼吸',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.4),
-                          fontSize: 13,
-                        ),
+                      const SizedBox(height: 16),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 1500),
+                        curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Column(
+                              children: [
+                                Text(
+                                  '你已经在 ${widget.packageName} 上停留太久',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.75),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '先停一下，跟随圆环呼吸',
+                                  style: TextStyle(
+                                    color: const Color(0xFF9ED8C4).withValues(alpha: 0.6),
+                                    fontSize: 14,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
 
                       const Spacer(flex: 3),
 
                       // 操作区。
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF9ED8C4),
-                            foregroundColor: const Color(0xFF101010),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            textStyle: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 1800),
+                        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Column(
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF9ED8C4),
+                                      foregroundColor: const Color(0xFF101010),
+                                      padding: const EdgeInsets.symmetric(vertical: 18),
+                                      textStyle: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.5,
+                                      ),
+                                      elevation: 8,
+                                      shadowColor: const Color(0xFF9ED8C4),
+                                    ),
+                                    onPressed: widget.onPutDown,
+                                    child: const Text('现在放下'),
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      side: BorderSide(
+                                        color: Colors.white.withValues(alpha: 0.25),
+                                        width: 1.5,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    onPressed: widget.onSnooze,
+                                    child: Text('再刷 ${widget.snoozeMinutes} 分钟'),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Text(
+                                  '提示：连续选择“再刷”超过 3 次，等待时间会缩短',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.35),
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          onPressed: widget.onPutDown,
-                          child: const Text('现在放下'),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                          ),
-                          onPressed: widget.onSnooze,
-                          child: Text('再刷 ${widget.snoozeMinutes} 分钟'),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '提示：连续选择“再刷”超过 3 次，等待时间会缩短',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          fontSize: 11,
-                        ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 24),
                     ],
