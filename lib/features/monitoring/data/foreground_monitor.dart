@@ -5,6 +5,7 @@ import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
+import 'package:is_it_enough/shared/services/logger_service.dart';
 
 /// Android 前台应用轮询监听器。
 ///
@@ -92,30 +93,31 @@ class ForegroundMonitor {
   }
 
   Future<void> _tick() async {
+    final logger = LoggerService();
     if (!_running) return;
     if (!_settings.monitoringEnabled) {
-      debugPrint('[够了吗] Monitor: 监听已关闭');
+      logger.debug('监听已关闭', tag: 'Monitor');
       _resetSession();
       return;
     }
 
     final granted = await _usageStats.isUsageAccessGranted();
     if (!granted) {
-      debugPrint('[够了吗] Monitor: 无 UsageStats 权限');
+      logger.warning('无 UsageStats 权限', tag: 'Monitor');
       _resetSession();
       return;
     }
 
     final package = await _usageStats.getForegroundPackage();
     if (package == null || package.isEmpty) {
-      debugPrint('[够了吗] Monitor: 无法获取前台包名');
+      logger.debug('无法获取前台包名', tag: 'Monitor');
       _resetSession();
       return;
     }
 
     // 系统/桌面/自身等不应参与“刷手机”判定。
     if (_shouldIgnore(package)) {
-      debugPrint('[够了吗] Monitor: 忽略包名 $package');
+      logger.debug('忽略包名 $package', tag: 'Monitor');
       _resetSession();
       return;
     }
@@ -135,7 +137,7 @@ class ForegroundMonitor {
           accumulatedTime != null &&
           now.difference(switchedAt) <= AppConstants.debounceDuration) {
         // 恢复之前的会话
-        debugPrint('[够了吗] Monitor: 消抖恢复 $package，已累计 ${accumulatedTime.inSeconds}s');
+        logger.info('消抖恢复 $package，已累计 ${accumulatedTime.inSeconds}s', tag: 'Monitor');
         _currentPackage = package;
         _currentSince = now.subtract(accumulatedTime);
         // 保留触发状态和强制时间点
@@ -150,10 +152,10 @@ class ForegroundMonitor {
         _previousPackage = _currentPackage;
         _switchedAt = now;
         _accumulatedTime = now.difference(_currentSince!);
-        debugPrint('[够了吗] Monitor: 离开 $_currentPackage，已使用 ${_accumulatedTime!.inSeconds}s');
+        logger.info('离开 $_currentPackage，已使用 ${_accumulatedTime!.inSeconds}s', tag: 'Monitor');
       }
 
-      debugPrint('[够了吗] Monitor: 切换到新应用 $package');
+      logger.info('切换到新应用 $package', tag: 'Monitor');
       _currentPackage = package;
       _currentSince = now;
       _sessionTriggered = false;
@@ -173,6 +175,7 @@ class ForegroundMonitor {
     // 1) 到“再刷”强制时刻：无论是否达到阈值都再次提醒。
     final forcedAt = _forcedTriggerAt;
     if (forcedAt != null && !now.isBefore(forcedAt)) {
+      logger.warning('强制提醒 $package (再刷时间到)', tag: 'Monitor');
       _sessionTriggered = true;
       _onTrigger(
         MonitorTriggerEvent(
@@ -189,7 +192,7 @@ class ForegroundMonitor {
         : Duration(minutes: _settings.thresholdMinutes);
     
     if (!_sessionTriggered && elapsed >= effectiveThreshold) {
-      debugPrint('[够了吗] Monitor: 触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)');
+      logger.warning('触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)', tag: 'Monitor');
       _sessionTriggered = true;
       _onTrigger(
         MonitorTriggerEvent(
@@ -201,7 +204,7 @@ class ForegroundMonitor {
       // 调试模式：每5秒输出进度；正常模式：每30秒输出
       final interval = _settings.debugMode ? 5 : 30;
       if (elapsed.inSeconds % interval == 0) {
-        debugPrint('[够了吗] Monitor: $package 已使用 ${elapsed.inSeconds}s / ${effectiveThreshold.inSeconds}s');
+        logger.info('$package 已使用 ${elapsed.inSeconds}s / ${effectiveThreshold.inSeconds}s', tag: 'Monitor');
       }
     }
   }
