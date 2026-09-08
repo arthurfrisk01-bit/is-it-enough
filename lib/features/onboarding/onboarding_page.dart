@@ -93,8 +93,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Widget _buildPermissionCheck() {
-    final allGood = _usageOk && _overlayOk;
-
+    final usageRequired = !_usageOk;
+    final overlayRequired = !_overlayOk;
+    
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -112,7 +113,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 children: [
                   _PermissionTile(
                     icon: Icons.access_time_outlined,
-                    title: '使用情况访问',
+                    title: '使用情况访问（必需）',
                     desc: 'Android UsageStatsManager 监听前台应用',
                     granted: _usageOk,
                     onRequest: () async {
@@ -123,8 +124,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   const SizedBox(height: 12),
                   _PermissionTile(
                     icon: Icons.picture_in_picture_alt_outlined,
-                    title: '悬浮窗权限',
-                    desc: '显示打断提醒',
+                    title: '悬浮窗权限（可选）',
+                    desc: '显示打断提醒。若不授予，可在应用内显示提醒',
                     granted: _overlayOk,
                     onRequest: () async {
                       await PermissionService().requestOverlayPermission();
@@ -143,13 +144,59 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 ],
               ),
             ),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: allGood ? () => setState(() => _step = 2) : null,
-                child: Text(allGood ? '继续' : '请先授予权限'),
+            if (usageRequired && overlayRequired)
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: null,
+                      child: const Text('请先授予使用情况访问权限'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _step = 2),
+                    child: const Text('暂时跳过（稍后可在设置中授权）'),
+                  ),
+                ],
+              )
+            else if (usageRequired)
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: null,
+                      child: const Text('请先授予使用情况访问权限'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _step = 2),
+                    child: const Text('暂时跳过（稍后可在设置中授权）'),
+                  ),
+                ],
+              )
+            else
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => setState(() => _step = 2),
+                      child: const Text('继续'),
+                    ),
+                  ),
+                  if (overlayRequired) ...[
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => setState(() => _step = 2),
+                      child: const Text('跳过悬浮窗权限（稍后可授权）'),
+                    ),
+                  ],
+                ],
               ),
-            ),
           ],
         ),
       ),

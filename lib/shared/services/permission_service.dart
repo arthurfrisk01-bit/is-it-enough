@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 
 /// 系统/厂商权限跳转服务。
@@ -24,9 +25,12 @@ class PermissionService {
   /// 是否已授予悬浮窗权限（Android 6.0+）。
   Future<bool> hasOverlayPermission() async {
     if (!kIsWeb && Platform.isAndroid) {
-      // 通过 Settings.canDrawOverlays() 或直接检查，这里简化为通过 PackageManager 查询。
-      // 实际实现需补充 MethodChannel。MVP 阶段先返回 false 强制跳转。
-      return false;
+      try {
+        return await FlutterOverlayWindow.isPermissionGranted();
+      } catch (e) {
+        debugPrint('[Permission] hasOverlayPermission error: $e');
+        return false;
+      }
     }
     return true;
   }
@@ -42,11 +46,15 @@ class PermissionService {
   /// 跳转 Android 悬浮窗权限设置页。
   Future<void> requestOverlayPermission() async {
     if (!kIsWeb && Platform.isAndroid) {
-      const intent = AndroidIntent(
-        action: 'android.settings.action.MANAGE_OVERLAY_PERMISSION',
-        data: 'package:$_packageName',
-      );
-      await intent.launch();
+      try {
+        final result = await FlutterOverlayWindow.requestPermission();
+        if (result != true) {
+          // 插件弹出系统授权页，用户手动授权
+          debugPrint('[Permission] 用户需在设置中手动授予悬浮窗权限');
+        }
+      } catch (e) {
+        debugPrint('[Permission] requestOverlayPermission error: $e');
+      }
       return;
     }
     throw UnsupportedError('当前平台不支持悬浮窗权限跳转');
