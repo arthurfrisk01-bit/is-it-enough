@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
+import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -73,7 +73,7 @@ class PermissionDiagnosisService {
 
     // 3. SYSTEM_ALERT_WINDOW 悬浮窗权限
     try {
-      final overlayGranted = await OverlayWindowService.isPermissionGranted();
+      final overlayGranted = await ReminderOverlayChannel.isPermissionGranted();
       items.add(DiagnosisItem(
         name: 'SYSTEM_ALERT_WINDOW (悬浮窗)',
         status: overlayGranted ? DiagnosisStatus.ok : DiagnosisStatus.warning,

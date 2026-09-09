@@ -2,10 +2,10 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:is_it_enough/features/monitoring/data/foreground_monitor.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/reminder/reminder_controller.dart';
+import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/features/settings/data/repositories/settings_repository.dart';
 import 'package:is_it_enough/features/settings/data/repositories/statistics_repository.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
@@ -64,14 +64,11 @@ Future<void> monitorMain() async {
     statistics: statsService,
   );
 
-  // Overlay 中“再刷/现在放下”的回传（若 Overlay 能在本引擎中拉起）。
-  try {
-    FlutterOverlayWindow.overlayListener.listen((data) {
-      if (data is Map) controller.onOverlayAction(data);
-    });
-  } catch (e) {
-    debugPrint('[够了吗] headless Overlay listener 注册失败: $e');
-  }
+  // 原生悬浮窗按钮（再刷/现在放下）的回传。无界面引擎里没有 Navigator，
+  // “现在放下”只记录统计、无法跳呼吸页；悬浮窗本身照常工作。
+  ReminderOverlayChannel.setActionHandler(
+    (action) => controller.onOverlayAction({'action': action}),
+  );
 
   _headlessController = controller;
   monitor.start();

@@ -1,7 +1,7 @@
 name: is_it_enough
 description: "够了吗 (Is It Enough) - 温和打断无意识刷手机的跨平台数字健康应用。"
 publish_to: "none"
-version: 0.3.7+17
+version: 0.3.8+18
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -14,8 +14,8 @@ dependencies:
   # 只用 shared_preferences：sqflite / path 在 lib/ 中零引用，已移除。
   shared_preferences: ^2.2.2
 
-  # Android 全局悬浮窗/Overlay
-  flutter_overlay_window: ^0.4.3
+  # 提醒悬浮窗：已改为原生 WindowManager 实现（见 android/.../ReminderOverlay.kt），
+  # 不再依赖 flutter_overlay_window 的独立 Flutter 引擎（实机上从不回执）。
 
   # Android 跳转系统设置 / 厂商权限页
   android_intent_plus: ^5.1.0

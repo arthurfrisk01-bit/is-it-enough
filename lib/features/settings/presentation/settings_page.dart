@@ -5,7 +5,7 @@ import 'package:is_it_enough/core/navigation/app_navigator.dart';
 import 'package:is_it_enough/features/breathing/breathing_page.dart';
 import 'package:is_it_enough/features/logs/log_export_dialog.dart';
 import 'package:is_it_enough/features/logs/log_viewer_page.dart';
-import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
+import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/permission_diagnosis_service.dart';
@@ -362,7 +362,7 @@ class SettingsPage extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.picture_in_picture_alt_outlined),
             title: const Text('悬浮窗权限'),
-            subtitle: const Text('Overlay 强/弱提醒必需'),
+            subtitle: const Text('全屏提醒必需（覆盖在当前应用之上）'),
             onTap: () => _launchPermission(
               context,
               () => permissions.requestOverlayPermission(),
@@ -429,10 +429,22 @@ class SettingsPage extends StatelessWidget {
       );
       logger.info('系统通知测试结果: ${notificationSent ? "成功" : "失败"}', tag: 'SelfTest');
       
-      // 2. 测试悬浮窗权限
-      logger.info('2/3 检查悬浮窗权限', tag: 'SelfTest');
-      final overlayGranted = await OverlayWindowService.isPermissionGranted();
+      // 2. 真实显示一次原生悬浮窗（2.5 秒后自动关闭），确认“前台全屏”这条路能走通
+      logger.info('2/3 测试原生悬浮窗', tag: 'SelfTest');
+      final overlayGranted = await ReminderOverlayChannel.isPermissionGranted();
       logger.info('悬浮窗权限: ${overlayGranted ? "已授予" : "未授予"}', tag: 'SelfTest');
+      var overlayShown = false;
+      if (overlayGranted) {
+        overlayShown = await ReminderOverlayChannel.show(
+          mode: settings.reminderMode.storageKey,
+          appName: '自检',
+          snoozeMinutes: 1,
+          continuousMinutes: 1,
+        );
+        logger.info('悬浮窗显示结果: $overlayShown', tag: 'SelfTest');
+        await Future<void>.delayed(const Duration(milliseconds: 2500));
+        await ReminderOverlayChannel.hide();
+      }
       
       // 3. 测试App内页
       logger.info('3/3 测试App内提醒页', tag: 'SelfTest');
@@ -450,7 +462,9 @@ class SettingsPage extends StatelessWidget {
       final report = StringBuffer();
       report.writeln('提醒通道自检报告：\n');
       report.writeln('✓ 系统通知：${notificationSent ? "✅ 正常" : "❌ 失败"}');
-      report.writeln('✓ 悬浮窗权限：${overlayGranted ? "✅ 已授予" : "❌ 未授予"}');
+      report.writeln(
+        '✓ 悬浮窗：${overlayShown ? "✅ 已显示" : (overlayGranted ? "❌ 显示失败（锁屏或被系统拦截）" : "❌ 未授权")}',
+      );
       report.writeln('✓ App内页：${hasNavigator ? "✅ 可用" : "❌ 不可用"}');
       report.writeln('\n建议：');
       if (!notificationSent) {
@@ -459,7 +473,7 @@ class SettingsPage extends StatelessWidget {
       if (!overlayGranted) {
         report.writeln('• 请在下方"悬浮窗权限"中授权');
       }
-      if (notificationSent || overlayGranted || hasNavigator) {
+      if (notificationSent || overlayShown || hasNavigator) {
         report.writeln('• 至少有一个提醒通道可用，正常');
       } else {
         logger.fatal('所有提醒通道均不可用！', tag: 'SelfTest');
@@ -503,8 +517,8 @@ class SettingsPage extends StatelessWidget {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            notificationSent || overlayGranted 
-                ? '自检完成：至少有一个通道可用' 
+            notificationSent || overlayShown
+                ? '自检完成：至少有一个通道可用'
                 : '自检完成：所有通道不可用，请检查权限',
           ),
           duration: const Duration(seconds: 3),

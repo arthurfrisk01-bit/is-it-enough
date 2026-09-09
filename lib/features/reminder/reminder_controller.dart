@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,7 @@ import 'package:is_it_enough/features/breathing/breathing_page.dart';
 import 'package:is_it_enough/features/monitoring/data/foreground_monitor.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
 import 'package:is_it_enough/features/reminder/in_app_reminder_page.dart';
-import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
+import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
 import 'package:is_it_enough/shared/services/statistics_service.dart';
@@ -25,14 +26,14 @@ import 'package:is_it_enough/shared/services/logger_service.dart';
 ///
 /// ## 呈现链路（按优先级，全部失败也有兜底）
 ///
-/// Overlay 服务只能在“触发那一刻”从后台拉起，Android 12+ / 国产 ROM 可能
-/// 静默丢弃，导致历史版本“日志有触发、用户无提醒”。因此这里不再只赌
-/// Overlay 一条路：
+/// 2026-09-09 实机结论：系统通知的“全屏 Intent”在屏幕点亮/解锁时会被系统
+/// 降级成横幅（AOSP 文档明确行为），所以“前台全屏”只能靠悬浮窗实现。旧的
+/// 独立 Flutter 引擎悬浮窗在实机上从不回执（只弹通知、没有全屏），已改为
+/// 原生 WindowManager 窗口（见 `ReminderOverlay.kt`）：
 ///
-/// 1. 有悬浮窗权限 → 先尝试 Overlay，600ms 后用 `isOverlayActive` 复核；
-/// 2. Overlay 未授权或启动失败 → 立即打开 App 内提醒页 + 发一条系统通知
-///    （强提醒=全屏 intent，弱提醒=Heads-up，后台必达）；
-/// 3. 每一步的成败都写入应用日志页，方便定位。
+/// 1. 先发系统通知 —— 唯一由系统保证送达的通道，锁屏时还会拉起全屏 Intent；
+/// 2. 有悬浮窗权限且未锁屏 → 原生全屏悬浮窗盖在当前应用之上，成功即撤回通知；
+/// 3. 悬浮窗不可用 → 退回 App 内提醒页；每一步成败都写入应用日志页。
 class ReminderController {
   ReminderController({
     required ForegroundMonitor monitor,
@@ -55,12 +56,6 @@ class ReminderController {
 
   /// 当前是否正在展示提醒（用于统计，未用于拦截）。
   bool get isShowing => _activePackage != null;
-
-  /// Overlay 渲染完成回执；只有它被 complete 才认为悬浮窗真的出现了。
-  Completer<void>? _overlayAck;
-
-  /// 本轮提醒向 Overlay 推送数据的次数（含 overlayReady 触发的补发）。
-  int _overlayPushCount = 0;
 
   /// 监听器触发时调用。
   Future<void> handleTrigger(MonitorTriggerEvent event) async {
@@ -105,7 +100,11 @@ class ReminderController {
     }
   }
 
-  /// Android 呈现链路：Overlay → 失败则 通知 + App 内页。
+  /// Android 呈现链路：系统通知（兜底必达）+ 原生全屏悬浮窗。
+  ///
+  /// 系统通知的全屏 Intent 在屏幕点亮/解锁时会被系统降级成横幅，因此“前台
+  /// 全屏”只能由悬浮窗完成。原生窗口的 `show()` 同步返回窗口是否真的挂上，
+  /// 不再需要回执/超时/补发那一套握手。
   Future<void> _showAndroidReminder({
     required ReminderMode mode,
     required String packageName,
@@ -113,115 +112,54 @@ class ReminderController {
     required int snoozeMinutes,
     required int continuousMinutes,
   }) async {
-    // 1) 系统通知优先。它是唯一由系统保证送达的通道，先发出去再谈悬浮窗，
-    //    这样即使悬浮窗链路卡住/抛错，用户也一定收到提醒。
-    //    2026-09-09 实测教训：shareData 没有超时，Overlay 引擎没起来时 Future
-    //    永不结束，整条提醒链路被卡死，连通知都发不出去。
-    _logger.info('发送系统通知（完整提醒，兜底必达通道）', tag: 'Reminder');
+    // 1) 系统通知先发。它是唯一由系统保证送达的通道（锁屏时还会直接拉起全屏
+    //    Intent），先发出去，即使悬浮窗被 ROM 拦截，用户也一定收到提醒。
+    _logger.info('发送系统通知（兜底必达通道）', tag: 'Reminder');
     final notificationSent = await _sendNotificationSafely(
       mode,
       continuousMinutes,
       appLabel,
     );
 
-    // 2) 悬浮窗增强。_tryOverlay 内部自带超时与收尾（失败必定关窗），这里不再
-    //    套外层总超时 —— 外层超时会让内层来不及关窗，留下空白窗口挡住屏幕。
+    // 2) 原生悬浮窗盖在任意应用之上，这才是“前台全屏”。
     var overlayOk = false;
-    final granted = await OverlayWindowService.isPermissionGranted();
-    _logger.info('悬浮窗权限: $granted', tag: 'Reminder');
-    if (granted) {
-      overlayOk = await _tryOverlay(mode, packageName, appLabel, snoozeMinutes);
+    var granted = false;
+    if (!kIsWeb && Platform.isAndroid) {
+      granted = await ReminderOverlayChannel.isPermissionGranted();
+      _logger.info('悬浮窗权限: $granted', tag: 'Reminder');
+      if (granted) {
+        overlayOk = await ReminderOverlayChannel.show(
+          mode: mode.storageKey,
+          appName: appLabel,
+          snoozeMinutes: snoozeMinutes,
+          continuousMinutes: continuousMinutes,
+        );
+        _logger.info('原生悬浮窗显示结果: $overlayOk', tag: 'Reminder');
+      }
     }
 
     if (overlayOk) {
-      // 悬浮窗已经覆盖在屏幕上，撤掉重复的通知，避免双份打扰。
-      _logger.info('Overlay 已确认显示，撤回通知避免重复提醒', tag: 'Reminder');
+      // 悬浮窗已经盖住屏幕，撤掉通知避免双份打扰（提示音已经响过）。
+      _logger.info('悬浮窗已覆盖屏幕，撤回通知避免重复提醒', tag: 'Reminder');
       await NotificationReminderService().cancelReminder();
       return;
     }
 
-    // Overlay 不可用（无权限 / 被系统拦截）：打开 App 内页作为备用。
+    // 3) 悬浮窗不可用（无权限 / 锁屏 / 被系统拦截）：退回 App 内提醒页。
     _logger.warning(
-      'Overlay 未生效（权限=$granted），${notificationSent ? "已发送通知" : "通知失败"}，尝试打开 App 内提醒',
+      '悬浮窗未生效（权限=$granted，锁屏或系统拦截），'
+      '${notificationSent ? "已发送通知" : "通知失败"}，尝试打开 App 内提醒',
       tag: 'Reminder',
     );
     final appPageOpened = _openInAppReminder(mode, appLabel, snoozeMinutes);
-    
+
     // 如果所有提醒通道都失败，强制记录严重错误
     if (!notificationSent && !appPageOpened) {
       _logger.fatal(
-        '所有提醒通道失败：通知=$notificationSent, Overlay=$granted, App内页=$appPageOpened',
+        '所有提醒通道失败：通知=$notificationSent, 悬浮窗权限=$granted, App内页=$appPageOpened',
         tag: 'Reminder',
       );
     }
-  }
-
-  /// 尝试展示悬浮窗并确认它真的渲染出来了，返回是否成功。
-  ///
-  /// 关键教训（2026-09-09 实机）：
-  /// - Overlay 引擎可能比 show() 晚很多才就绪，`shareData` 会超时；数据只能靠
-  ///   Overlay 隔离区主动发 `overlayReady` 后补发，不能赌“推一次就中”；
-  /// - 一旦没确认渲染成功，必须立刻关窗。否则窗口以“透明空窗”的形式压在应用
-  ///   上，用户能看到界面但整屏点不动。
-  Future<bool> _tryOverlay(
-    ReminderMode mode,
-    String packageName,
-    String appLabel,
-    int snoozeMinutes,
-  ) async {
-    try {
-      await OverlayWindowService.show();
-    } catch (e) {
-      _logger.error('Overlay 展示异常: $e', tag: 'Reminder');
-      // show() 超时/报错时服务可能已经拉起 —— 清理掉，别留下空窗。
-      await OverlayWindowService.hide();
-      return false;
-    }
-
-    // 暂存数据：Overlay 隔离区起来后会喊 overlayReady，我们据此补发。
-    OverlayWindowService.pendingPayload = {
-      'mode': mode.storageKey,
-      'packageName': packageName,
-      'appName': appLabel,
-      'snoozeMinutes': snoozeMinutes,
-    };
-    _overlayAck = Completer<void>();
-    _overlayPushCount = 0;
-
-    await _pushOverlayPayload();
-
-    var acked = false;
-    try {
-      await _overlayAck!.future.timeout(const Duration(milliseconds: 3500));
-      acked = true;
-    } on TimeoutException {
-      acked = false;
-    }
-
-    final serviceRunning = await OverlayWindowService.isActive();
-    _logger.info(
-      'Overlay 复核：渲染回执=$acked 服务运行中=$serviceRunning 推送次数=$_overlayPushCount',
-      tag: 'Reminder',
-    );
-
-    if (!acked) {
-      // 没渲染出来就立刻关窗：否则会留下一个空白全屏窗口挡住整个屏幕。
-      _logger.warning('Overlay 未确认渲染，关闭悬浮窗避免空窗挡屏', tag: 'Reminder');
-      OverlayWindowService.pendingPayload = null;
-      await OverlayWindowService.hide();
-      return false;
-    }
-
-    OverlayWindowService.pendingPayload = null;
-    return serviceRunning;
-  }
-
-  /// 把暂存的提醒数据推给 Overlay 隔离区（最多 3 次，避免反复超时刷屏）。
-  Future<void> _pushOverlayPayload() async {
-    final payload = OverlayWindowService.pendingPayload;
-    if (payload == null || _overlayPushCount >= 3) return;
-    _overlayPushCount += 1;
-    await OverlayWindowService.sendData(payload);
   }
 
   /// 安全发送系统通知，捕获所有异常并返回是否成功。
@@ -247,27 +185,10 @@ class ReminderController {
     }
   }
 
-  /// Overlay 子窗口通过 shareData 把用户操作回传主 App。
+  /// 原生悬浮窗按钮回传的用户操作。
   Future<void> onOverlayAction(Map<dynamic, dynamic> data) async {
     final action = data['action'] as String?;
     switch (action) {
-      case 'overlayReady':
-        // Overlay 隔离区开始渲染了：把暂存的提醒数据补发过去。
-        // 这是引擎冷启动慢时数据唯一可靠的送达机会。
-        if (OverlayWindowService.pendingPayload != null) {
-          _logger.info(
-            'Overlay 引擎就绪信号，补发提醒数据（第 ${_overlayPushCount + 1} 次）',
-            tag: 'Reminder',
-          );
-          await _pushOverlayPayload();
-        }
-        break;
-      case 'overlayShown':
-        _logger.info('Overlay 渲染回执已收到', tag: 'Reminder');
-        if (_overlayAck != null && !_overlayAck!.isCompleted) {
-          _overlayAck!.complete();
-        }
-        break;
       case 'snooze':
         await snooze();
         break;
@@ -275,7 +196,7 @@ class ReminderController {
         await putDown();
         break;
       default:
-        _logger.debug('Overlay action: $action', tag: 'Reminder');
+        _logger.debug('悬浮窗操作: $action', tag: 'Reminder');
         break;
     }
   }
@@ -290,7 +211,7 @@ class ReminderController {
     _snoozeCount += 1;
 
     _activePackage = null;
-    await OverlayWindowService.hide();
+    await ReminderOverlayChannel.hide();
     await NotificationReminderService().cancelReminder();
 
     // 调试模式特殊处理：30秒后再次提醒
@@ -313,7 +234,7 @@ class ReminderController {
     // 用户已放下：这一轮连续使用结束，“再刷”计数归零。
     _snoozeCount = 0;
     _lastTriggerPackage = null;
-    await OverlayWindowService.hide();
+    await ReminderOverlayChannel.hide();
     await NotificationReminderService().cancelReminder();
     _monitor.resetSession();
 
@@ -344,6 +265,42 @@ class ReminderController {
     return _snoozeCount >= AppConstants.maxSnoozeCount
         ? AppConstants.shortenedSnoozeMinutes
         : 5;
+  }
+
+  /// 解析通知 payload 并打开完整的 App 内提醒页。
+  ///
+  /// payload 由 [NotificationReminderService.showReminder] 写入（JSON）。
+  void openReminderFromNotificationPayload(String payload) {
+    try {
+      final data = jsonDecode(payload);
+      if (data is! Map) return;
+      if (data['type'] != 'reminder') return;
+      openReminderFromNotification(
+        mode: ReminderMode.fromStorage(data['mode'] as String?),
+        appName: data['appName'] as String? ?? '这个应用',
+      );
+    } catch (e) {
+      _logger.warning('解析通知 payload 失败: $e', tag: 'Reminder');
+    }
+  }
+
+  /// 用户点击提醒通知时，打开完整的 App 内提醒页。
+  ///
+  /// 通知是最可靠的送达通道，锁屏时系统还会直接拉起全屏 Intent；用户点它
+  /// 说明想看提醒，这里直接进入提醒界面，而不是只打开 App 首页。
+  /// 冷启动（点通知拉起 App）时 Navigator 还没挂上，等首帧后再打开。
+  void openReminderFromNotification({
+    required ReminderMode mode,
+    required String appName,
+  }) {
+    final minutes = _snoozeMinutes;
+    if (appNavigatorKey.currentState != null) {
+      _openInAppReminder(mode, appName, minutes);
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openInAppReminder(mode, appName, minutes);
+    });
   }
 
   bool _openInAppReminder(

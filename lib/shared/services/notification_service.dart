@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -8,14 +9,16 @@ import 'package:is_it_enough/shared/services/logger_service.dart';
 
 /// 系统通知提醒服务（兜底通道）。
 ///
-/// 悬浮窗 Overlay 依赖“后台启动前台服务”，在 Android 12+ / 国产 ROM 上可能被
-/// 系统静默丢弃（触发后无任何可见结果）。系统通知不依赖后台服务启动，任何
-/// 场景都能送达，因此作为提醒的**必发兜底通道**：
-/// - 强提醒：高优先级 + 全屏 Intent（点亮屏幕直接打断，权限允许时）；
+/// 提醒的主通道是原生全屏悬浮窗（`ReminderOverlay.kt`）。系统通知不依赖
+/// 悬浮窗权限和后台启动能力，任何场景都能送达，因此作为**必发兜底通道**：
+/// - 强提醒：高优先级 + 全屏 Intent（锁屏时由系统直接全屏打断）；
 /// - 弱提醒：高优先级 Heads-up 横幅；
-/// - 静默模式：Overlay 已成功展示时只留一条低优先级通知，不响铃不震动。
+/// - 静默模式：悬浮窗已成功展示时只留一条低优先级通知，不响铃不震动。
 ///
-/// 该服务只在主 App 入口初始化；Overlay 子引擎不需要。
+/// 注意（2026-09-09 实机验证）：屏幕点亮且已解锁时，系统会把“全屏 Intent”
+/// 降级成横幅通知（AOSP 文档行为），所以“前台全屏”必须靠悬浮窗，通知只做兜底。
+///
+/// 该服务只在主 App 入口初始化；无界面后台引擎也初始化（不发权限弹窗）。
 class NotificationReminderService {
   factory NotificationReminderService() => _instance;
 
@@ -38,6 +41,20 @@ class NotificationReminderService {
   static const MethodChannel _diagnosisChannel =
       MethodChannel('com.isitenough.app/diagnosis');
 
+  /// 用户点击提醒通知时的回调；由 main.dart 挂上，用来打开完整提醒页。
+  ///
+  /// 通知是最可靠的送达通道（锁屏时系统还会直接拉起全屏 Intent），点它说明
+  /// 用户想看提醒，因此应当进入提醒界面而不是只打开 App 首页。
+  static void Function(String? payload)? onNotificationTap;
+
+  static void _onNotificationResponse(NotificationResponse response) {
+    LoggerService().info(
+      '用户点击提醒通知（payload=${response.payload}）',
+      tag: 'Notification',
+    );
+    onNotificationTap?.call(response.payload);
+  }
+
   /// 初始化通知通道（幂等）。App 启动时调用一次。
   ///
   /// [requestPermission] 为 false 时不发起 Android 13+ 的运行时通知权限弹窗：
@@ -50,7 +67,10 @@ class NotificationReminderService {
       const settings = InitializationSettings(
         android: AndroidInitializationSettings('notification_icon'),
       );
-      await _plugin.initialize(settings);
+      await _plugin.initialize(
+        settings,
+        onDidReceiveNotificationResponse: _onNotificationResponse,
+      );
 
       // Android 13+ 需要运行时通知权限；此处只发起一次系统弹窗，不阻塞启动。
       final androidImpl = _plugin.resolvePlatformSpecificImplementation<
@@ -168,7 +188,12 @@ class NotificationReminderService {
         title,
         body,
         NotificationDetails(android: details),
-        payload: 'reminder',
+        payload: jsonEncode(<String, dynamic>{
+          'type': 'reminder',
+          'mode': mode.storageKey,
+          'appName': appLabel,
+          'continuousMinutes': continuousMinutes,
+        }),
       );
 
       // 回读系统活跃通知，确认通知真的被系统接受（而不是被权限/通道静默丢弃）。

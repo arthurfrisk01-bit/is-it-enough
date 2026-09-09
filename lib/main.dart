@@ -3,19 +3,16 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:is_it_enough/app.dart';
 import 'package:is_it_enough/features/monitoring/data/foreground_monitor.dart';
 import 'package:is_it_enough/features/monitoring/data/monitor_service_channel.dart';
 
-// overlay_main.dart 中定义了 flutter_overlay_window 所需的独立入口 `overlayMain`。
-// 通过 export 让该入口随主 library 一起编译,避免 AOT/Release 中被摇树移除。
-export 'overlay_main.dart';
 // monitor_main.dart 定义了原生后台服务使用的无界面入口 `monitorMain`，
 // 同样必须 export 才能在 Release(AOT) 中保留。
 export 'monitor_main.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/reminder/reminder_controller.dart';
+import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/features/settings/data/repositories/settings_repository.dart';
 import 'package:is_it_enough/features/settings/data/repositories/statistics_repository.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
@@ -44,7 +41,10 @@ Future<void> main() async {
   logger.debugMode = settingsService.debugMode;
   logger.info('应用启动', tag: 'Main');
 
-  // 初始化系统通知通道（Overlay 拉不起来时的兜底提醒通道）。
+  // 初始化系统通知通道（悬浮窗不可用时的兜底提醒通道）。
+  // 先挂点击回调再 init：冷启动（点通知拉起 App）时回执会在 init 里就回调，
+  // 那时控制器还没建好，先把 payload 暂存，等监听器就绪后再打开提醒页。
+  NotificationReminderService.onNotificationTap = _handleNotificationTap;
   await NotificationReminderService().init();
 
   // Android：启动前台应用轮询监听。
@@ -72,6 +72,20 @@ ForegroundMonitor? _androidMonitor;
 /// 全局提醒控制器。
 ReminderController? _reminderController;
 
+/// 冷启动（点通知拉起 App）时暂存的通知 payload，等控制器就绪后再打开提醒页。
+String? _pendingNotificationPayload;
+
+/// 通知被点击：悬浮窗不可用时它是唯一的全屏入口（锁屏时系统还会直接拉起全屏 Intent）。
+void _handleNotificationTap(String? payload) {
+  if (payload == null || payload.isEmpty) return;
+  final controller = _reminderController;
+  if (controller == null) {
+    _pendingNotificationPayload = payload;
+    return;
+  }
+  controller.openReminderFromNotificationPayload(payload);
+}
+
 /// 启动 Android 5 秒轮询监听,并把触发事件交给提醒控制器。
 void _startAndroidMonitor(SettingsService settingsService, StatisticsService statsService) {
   final logger = LoggerService();
@@ -94,23 +108,21 @@ void _startAndroidMonitor(SettingsService settingsService, StatisticsService sta
     statistics: statsService,
   );
 
-  // 接收 Overlay 隔离区的回传：用户点击“再刷/现在放下”、渲染回执、
-  // 以及 Overlay 侧的关键日志（它没有原生日志桥，日志靠这里落盘）。
-  try {
-    FlutterOverlayWindow.overlayListener.listen((data) {
-      if (data is! Map) return;
-      if (data['action'] == 'log') {
-        LoggerService().info('${data['msg']}', tag: 'Overlay');
-        return;
-      }
-      controller.onOverlayAction(data);
-    });
-  } catch (e) {
-    debugPrint('[够了吗] Overlay listener 注册失败: $e');
-  }
+  // 接收原生悬浮窗按钮（再刷/现在放下）的回传。
+  ReminderOverlayChannel.setActionHandler(
+    (action) => controller.onOverlayAction({'action': action}),
+  );
 
   _androidMonitor = monitor;
   _reminderController = controller;
+
+  // 冷启动时通知回执可能早于控制器创建，这里补一次。
+  final pending = _pendingNotificationPayload;
+  if (pending != null) {
+    _pendingNotificationPayload = null;
+    controller.openReminderFromNotificationPayload(pending);
+  }
+
   monitor.start();
 
   // 保活服务：把进程提升为前台优先级；App 进程被系统回收后由它拉起

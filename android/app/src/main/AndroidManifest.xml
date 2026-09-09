@@ -10,7 +10,7 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- 全局悬浮窗：flutter_overlay_window / TYPE_APPLICATION_OVERLAY 需要 -->
+    <!-- 全局悬浮窗：原生提醒窗口 ReminderOverlay（TYPE_APPLICATION_OVERLAY）需要 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Android 8+ 后台前台服务，用于保持轮询监听 -->
@@ -20,7 +20,7 @@
     <!-- Android 13+ 通知权限，辅助提醒/后台保活通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 强提醒全屏通知（Overlay 不可用时的系统级全屏打断兜底） -->
+    <!-- 强提醒全屏通知（锁屏时悬浮窗不可见，由系统全屏 Intent 兜底） -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- 开机自启（可选，用于重启后恢复监听） -->
@@ -60,19 +60,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
-        <!--
-          flutter_overlay_window 全局悬浮窗服务。
-          类名以当前 pub.dev 上 flutter_overlay_window 0.4.5 插件源码为准。
-        -->
-        <service
-            android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="show in-app reminder overlay for digital wellbeing" />
-        </service>
 
         <!--
           后台监控保活服务：

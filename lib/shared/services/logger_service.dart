@@ -96,14 +96,13 @@ class LoggerService extends ChangeNotifier {
   final _logs = Queue<LogEntry>();
   static const _maxLogs = 2000;
 
-  /// 当前引擎标识，启动时由各入口设置（UI / Monitor / Overlay）。
+  /// 当前引擎标识，启动时由各入口设置（UI / Monitor）。
   static String isolateName = 'UI';
 
   /// 是否把日志写进原生文件。
   ///
-  /// Overlay 隔离区的引擎由 flutter_overlay_window 插件自己创建，没有注册
-  /// 我们的原生日志桥，写盘必然失败；由 overlay_main 关掉，关键日志改走
-  /// shareData 回传主 App 落盘。
+  /// 提醒悬浮窗改为原生 WindowManager 实现后，所有 Dart 引擎（UI / Monitor）
+  /// 都注册了原生日志桥，因此保持 true。
   static bool persistToNative = true;
 
   bool _persistEnabled = !kIsWeb && Platform.isAndroid;

@@ -47,6 +47,9 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
+# Flutter 工具状态（HOME 指向项目内时生成）
+.config/
+
 # Flutter SDK embedded copy
 .flutter-sdk/
 .gradle/

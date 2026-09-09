@@ -37,6 +37,12 @@ object AppBridges {
             Log.e(TAG, "注册 LogBridge 失败", t)
         }
         try {
+            ReminderOverlayBridge(context).register(engine)
+        } catch (t: Throwable) {
+            Log.e(TAG, "注册 ReminderOverlayBridge 失败", t)
+            LogStore.append(context, "注册悬浮窗通道失败: ${t.message}", "Native")
+        }
+        try {
             registerDiagnosis(engine, context)
             registerMonitorService(engine, context)
         } catch (t: Throwable) {
