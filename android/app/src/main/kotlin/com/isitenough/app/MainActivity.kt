@@ -31,6 +31,9 @@ class MainActivity : FlutterActivity() {
         // Activity 销毁不代表进程结束；这里保守置为 false，
         // 服务在下次 onStartCommand 时再决定是否拉起 headless 引擎。
         MonitorForegroundService.uiAlive = false
+        // 界面引擎即将销毁：若提醒悬浮窗还开着就先关掉。窗口上的按钮回调指向
+        // 这个已销毁的引擎，留着只会变成挡住屏幕、点不动的空窗。
+        ReminderOverlay.hide()
         LogStore.append(this, "MainActivity.onDestroy，界面退出", "Native")
         super.onDestroy()
     }

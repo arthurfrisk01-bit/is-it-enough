@@ -54,11 +54,14 @@ class ReminderOverlayBridge(private val context: Context) {
                             try {
                                 channel.invokeMethod("action", action)
                             } catch (t: Throwable) {
+                                // 回传失败说明宿主引擎已销毁：立刻关窗，
+                                // 否则按钮失效、悬浮窗会一直挡住屏幕。
                                 LogStore.append(
                                     context,
-                                    "回传悬浮窗操作失败: ${t.message}",
+                                    "回传悬浮窗操作失败，关闭窗口: ${t.message}",
                                     "Overlay",
                                 )
+                                ReminderOverlay.hide()
                             }
                         }
                         result.success(shown)
