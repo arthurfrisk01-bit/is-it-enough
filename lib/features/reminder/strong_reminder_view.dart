@@ -10,13 +10,13 @@ import 'package:vibration/vibration.dart';
 class StrongReminderView extends StatefulWidget {
   const StrongReminderView({
     super.key,
-    required this.packageName,
+    required this.appName,
     required this.snoozeMinutes,
     required this.onSnooze,
     required this.onPutDown,
   });
 
-  final String packageName;
+  final String appName;
   final int snoozeMinutes;
   final VoidCallback onSnooze;
   final VoidCallback onPutDown;
@@ -142,7 +142,7 @@ class _StrongReminderViewState extends State<StrongReminderView>
                             child: Column(
                               children: [
                                 Text(
-                                  '你已经在 ${widget.packageName} 上停留太久',
+                                  '你已经在 ${widget.appName} 上停留太久',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.75),

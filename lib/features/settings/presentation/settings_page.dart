@@ -185,7 +185,13 @@ class SettingsPage extends StatelessWidget {
                     label: Text('$minutes 分钟'),
                   ),
               ],
-              selected: {settings.thresholdMinutes},
+              // 双层兜底：仓库层已校验，这里再挡一次，
+              // 保证 selected 一定是 segments 里的值（否则 SegmentedButton 断言崩溃）。
+              selected: {
+                AppConstants.thresholdOptions.contains(settings.thresholdMinutes)
+                    ? settings.thresholdMinutes
+                    : AppConstants.defaultThresholdMinutes,
+              },
               showSelectedIcon: false,
               onSelectionChanged: (selection) {
                 settings.setThresholdMinutes(selection.first);

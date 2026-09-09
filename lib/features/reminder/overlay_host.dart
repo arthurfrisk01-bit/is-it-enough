@@ -23,6 +23,7 @@ class _OverlayHostState extends State<OverlayHost> {
 
   String? _mode;
   String _packageName = '';
+  String _appName = '';
   int _snoozeMinutes = 5;
 
   @override
@@ -34,6 +35,7 @@ class _OverlayHostState extends State<OverlayHost> {
         setState(() {
           _mode = data['mode'] as String? ?? _mode;
           _packageName = data['packageName'] as String? ?? _packageName;
+          _appName = data['appName'] as String? ?? _appName;
           _snoozeMinutes = data['snoozeMinutes'] as int? ?? _snoozeMinutes;
         });
       }
@@ -48,6 +50,9 @@ class _OverlayHostState extends State<OverlayHost> {
 
   ReminderMode get _reminderMode =>
       ReminderMode.fromStorage(_mode ?? ReminderMode.strong.storageKey);
+
+  /// 展示给用户的应用名：优先真实应用名，拿不到时回退包名。
+  String get _displayName => _appName.isNotEmpty ? _appName : _packageName;
 
   Future<void> _snooze() async {
     await OverlayWindowService.sendData({'action': 'snooze'});
@@ -77,7 +82,7 @@ class _OverlayHostState extends State<OverlayHost> {
     final mode = _reminderMode;
     if (mode == ReminderMode.strong) {
       return StrongReminderView(
-        packageName: _packageName,
+        appName: _displayName,
         snoozeMinutes: _snoozeMinutes,
         onSnooze: _snooze,
         onPutDown: _putDown,
@@ -92,7 +97,7 @@ class _OverlayHostState extends State<OverlayHost> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: WeakReminderView(
-              packageName: _packageName,
+              appName: _displayName,
               snoozeMinutes: _snoozeMinutes,
               onSnooze: _snooze,
               onPutDown: _putDown,

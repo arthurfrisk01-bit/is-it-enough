@@ -49,12 +49,8 @@ app.*.map.json
 
 # Flutter SDK embedded copy
 .flutter-sdk/
-.pub-cache/
-.dart-tool/
-.dart_tool/
 .gradle/
 .home/
-deploy/
 deploy/
 website/
 is-it-enough-website.tar.gz

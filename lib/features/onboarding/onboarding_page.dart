@@ -162,11 +162,11 @@ class _OnboardingPageState extends State<OnboardingPage> with WidgetsBindingObse
             if (usageRequired && overlayRequired)
               Column(
                 children: [
-                  SizedBox(
+                  const SizedBox(
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: null,
-                      child: const Text('请先授予使用情况访问权限'),
+                      child: Text('请先授予使用情况访问权限'),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -179,11 +179,11 @@ class _OnboardingPageState extends State<OnboardingPage> with WidgetsBindingObse
             else if (usageRequired)
               Column(
                 children: [
-                  SizedBox(
+                  const SizedBox(
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: null,
-                      child: const Text('请先授予使用情况访问权限'),
+                      child: Text('请先授予使用情况访问权限'),
                     ),
                   ),
                   const SizedBox(height: 8),

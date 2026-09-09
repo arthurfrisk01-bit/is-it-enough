@@ -31,8 +31,16 @@ class StatisticsRepository {
     await _prefs.setInt(_keyTotalTriggers, stats.totalTriggers);
     await _prefs.setInt(_keyPutDown, stats.putDownCount);
     await _prefs.setInt(_keyContinue, stats.continueCount);
-    if (stats.lastTriggerTime != null) {
-      await _prefs.setInt(_keyLastTrigger, stats.lastTriggerTime!.millisecondsSinceEpoch);
+    final lastTriggerTime = stats.lastTriggerTime;
+    if (lastTriggerTime != null) {
+      await _prefs.setInt(
+        _keyLastTrigger,
+        lastTriggerTime.millisecondsSinceEpoch,
+      );
+    } else {
+      // 重置统计后必须删掉旧值：否则内存已清空、prefs 仍留着上次触发时间，
+      // 重启应用后“上次触发”会复活。
+      await _prefs.remove(_keyLastTrigger);
     }
   }
 }

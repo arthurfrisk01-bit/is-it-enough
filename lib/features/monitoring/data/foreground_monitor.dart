@@ -29,6 +29,14 @@ class ForegroundMonitor {
   Timer? _timer;
   bool _running = false;
 
+  /// 防重入：每次 tick 至少两次 MethodChannel 往返，若某次耗时超过轮询间隔，
+  /// 下一次 timer 回调会与它重叠，导致会话状态被交叉修改。
+  bool _ticking = false;
+
+  /// 因“监控关闭 / 无权限”被阻断时只记录一条日志，
+  /// 避免每 5 秒写一条把 500 条日志队列冲满。
+  bool _loggedBlockedState = false;
+
   /// 当前处于前台的包名。
   String? _currentPackage;
 
@@ -92,20 +100,37 @@ class ForegroundMonitor {
   }
 
   Future<void> _tick() async {
+    if (_ticking) return;
+    _ticking = true;
+    try {
+      await _tickBody();
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  Future<void> _tickBody() async {
     final logger = LoggerService();
     if (!_running) return;
     if (!_settings.monitoringEnabled) {
-      logger.debug('监听已关闭', tag: 'Monitor');
+      if (!_loggedBlockedState) {
+        logger.info('后台监控已关闭，暂停判定', tag: 'Monitor');
+        _loggedBlockedState = true;
+      }
       _resetSession();
       return;
     }
 
     final granted = await _usageStats.isUsageAccessGranted();
     if (!granted) {
-      logger.warning('无 UsageStats 权限', tag: 'Monitor');
+      if (!_loggedBlockedState) {
+        logger.warning('无 UsageStats 权限，暂停判定（请授予“使用情况访问”）', tag: 'Monitor');
+        _loggedBlockedState = true;
+      }
       _resetSession();
       return;
     }
+    _loggedBlockedState = false;
 
     final package = await _usageStats.getForegroundPackage();
     if (package == null || package.isEmpty) {
@@ -270,7 +295,7 @@ class ForegroundMonitor {
     _currentSince = null;
     // 注意：不清理 _sessionTriggered/_forcedTriggerAt/_suppressedUntil，
     // 消抖恢复时需原样带回，否则已触发过的会话恢复后会重复提醒。
-    LoggerService().info(
+    LoggerService().debug(
       '会话停靠 $currentPackage（已累计 ${_accumulatedTime!.inSeconds}s）',
       tag: 'Monitor',
     );

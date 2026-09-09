@@ -19,11 +19,15 @@ class SettingsRepository {
   static const _kDebounceEnabled = 'debounce_enabled';
   static const _kDebugMode = 'debug_mode';
 
-  /// 读取本地配置；任何字段缺失时使用默认值。
+  /// 读取本地配置；任何字段缺失或非法时使用默认值。
   AppConfig load() {
     final mode = ReminderMode.fromStorage(_prefs.getString(_kReminderMode));
-    final threshold = _prefs.getInt(_kThresholdMinutes) ??
-        AppConstants.defaultThresholdMinutes;
+    final storedThreshold = _prefs.getInt(_kThresholdMinutes);
+    // 兜底校验：旧版本/手工改过的值可能不在 thresholdOptions 里，
+    // 直接透传会让设置页 SegmentedButton 的 selected 与 segments 不匹配而断言崩溃。
+    final threshold = AppConstants.thresholdOptions.contains(storedThreshold)
+        ? storedThreshold!
+        : AppConstants.defaultThresholdMinutes;
     final blacklist = _prefs.getStringList(_kBlacklistedApps)?.toSet() ??
         const <String>{};
 

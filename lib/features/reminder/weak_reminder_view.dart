@@ -7,15 +7,15 @@ import 'package:flutter/material.dart';
 class WeakReminderView extends StatefulWidget {
   const WeakReminderView({
     super.key,
-    required this.packageName,
+    required this.appName,
     required this.snoozeMinutes,
     required this.onSnooze,
     required this.onPutDown,
     this.onClose,
   });
 
-  /// 当前触发提醒的应用包名。
-  final String packageName;
+  /// 当前触发提醒的应用名称（如“微信”），拿不到时回退为包名。
+  final String appName;
 
   /// 本次"再刷"的分钟数（正常 5 分钟，连续 3 次后为 2 分钟）。
   final int snoozeMinutes;
@@ -77,12 +77,12 @@ class _WeakReminderViewState extends State<WeakReminderView>
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
+              gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xF21C1B20),
-                  const Color(0xF2242330),
+                  Color(0xF21C1B20),
+                  Color(0xF2242330),
                 ],
               ),
               borderRadius: BorderRadius.circular(20),
@@ -155,7 +155,7 @@ class _WeakReminderViewState extends State<WeakReminderView>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '你已经在 ${widget.packageName} 上停留一段时间了',
+                  '你已经在 ${widget.appName} 上停留一段时间了',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

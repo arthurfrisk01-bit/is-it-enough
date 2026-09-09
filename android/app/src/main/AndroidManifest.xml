@@ -68,6 +68,34 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="show in-app reminder overlay for digital wellbeing" />
         </service>
+
+        <!--
+          后台监控保活服务：
+          - 常驻低优先级前台通知，提升进程优先级，降低被回收概率；
+          - App 界面不存在时（开机自启 / 进程被系统回收后重建）拉起无界面
+            Flutter 引擎执行 monitorMain 入口，让监控继续工作。
+        -->
+        <service
+            android:name=".MonitorForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="持续读取应用使用时长并在超时后提醒用户，属用户主动开启的数字健康守护功能" />
+        </service>
+
+        <!-- 开机 / 应用更新后按开关自动恢复后台监控 -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <queries>

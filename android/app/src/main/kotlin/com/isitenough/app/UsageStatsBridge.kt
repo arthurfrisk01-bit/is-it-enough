@@ -29,7 +29,16 @@ class UsageStatsBridge(
     companion object {
         private const val CHANNEL = "com.isitenough.app/usage_stats"
         private const val LOOKBACK_WINDOW_MS = 2 * 60 * 1000L // 2 分钟（聚合法回退窗口）
-        private const val EVENT_LOOKBACK_MS = 60 * 60 * 1000L // 事件法查询窗口：1 小时
+
+        /**
+         * 事件法查询窗口：6 小时。
+         *
+         * 旧值 1 小时会让“连续使用超过 1 小时且中间没有 Activity 切换”的场景
+         * （刷视频、看小说）在窗口内找不到有效事件，退化为聚合法（取
+         * lastTimeUsed 最大），容易被桌面/最近任务带偏，进而导致会话反复
+         * 停靠+恢复、累计时间被重置。6 小时覆盖绝大多数单次连续使用。
+         */
+        private const val EVENT_LOOKBACK_MS = 6 * 60 * 60 * 1000L
     }
 
     private val channel = MethodChannel(
@@ -151,8 +160,12 @@ class UsageStatsBridge(
      * 事件法推断前台包名。
      *
      * 规则：最近一个 RESUME 的包为前台；该包出现 PAUSED/STOPPED 后视为离开
-     * （期间有新的 RESUME 则换人）。返回 null 表示窗口内无有效事件（例如用户
-     * 长时间停留在某应用、窗口内只有一次很早的 RESUME），由调用方回退聚合法。
+     * （期间有新的 RESUME 则换人）。
+     *
+     * 返回值三态：
+     * - 非空包名：确定的前台应用；
+     * - 空串 ""：确定“没有前台应用”（熄屏），调用方应停靠会话而不是回退聚合法；
+     * - null：窗口内无法判定，由调用方回退聚合法。
      */
     private fun inferForegroundFromEvents(
         usageStatsManager: UsageStatsManager,
@@ -162,17 +175,31 @@ class UsageStatsBridge(
         val events = usageStatsManager.queryEvents(begin, end)
         val event = android.app.usage.UsageEvents.Event()
         var current: String? = null
+        var screenOff = false
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
-            val pkg = event.packageName ?: continue
+            val pkg = event.packageName
             when (event.eventType) {
-                android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> current = pkg
+                android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    if (pkg != null) current = pkg
+                }
                 android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
                 android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> {
-                    if (pkg == current) current = null
+                    if (pkg != null && pkg == current) current = null
+                }
+                // SCREEN_* 事件仅 API 28+ 会上报；常量编译期内联，低版本不会命中。
+                android.app.usage.UsageEvents.Event.SCREEN_INTERACTIVE -> {
+                    screenOff = false
+                }
+                android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                    // 熄屏后不存在“前台应用”。若不显式置空，锁屏几小时后
+                    // 窗口内最后一个 RESUME 仍会被当成当前前台应用。
+                    screenOff = true
+                    current = null
                 }
             }
         }
+        if (screenOff) return ""
         return current
     }
 

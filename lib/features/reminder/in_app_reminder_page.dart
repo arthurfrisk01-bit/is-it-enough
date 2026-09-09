@@ -7,18 +7,21 @@ import 'package:is_it_enough/features/reminder/weak_reminder_view.dart';
 ///
 /// - 强提醒：全屏毛玻璃阻断；
 /// - 弱提醒：顶部轻量悬浮卡片，不遮挡整屏。
+///
+/// [appName] 是展示给用户的应用名称（如“微信”），由调用方从
+/// UsageStats 的 appLabel 取，拿不到时回退为包名。
 class InAppReminderPage extends StatelessWidget {
   const InAppReminderPage({
     super.key,
     required this.mode,
-    required this.packageName,
+    required this.appName,
     required this.snoozeMinutes,
     required this.onSnooze,
     required this.onPutDown,
   });
 
   final ReminderMode mode;
-  final String packageName;
+  final String appName;
   final int snoozeMinutes;
   final VoidCallback onSnooze;
   final VoidCallback onPutDown;
@@ -27,7 +30,7 @@ class InAppReminderPage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (mode == ReminderMode.strong) {
       return StrongReminderView(
-        packageName: packageName,
+        appName: appName,
         snoozeMinutes: snoozeMinutes,
         onSnooze: onSnooze,
         onPutDown: onPutDown,
@@ -43,7 +46,7 @@ class InAppReminderPage extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: WeakReminderView(
-              packageName: packageName,
+              appName: appName,
               snoozeMinutes: snoozeMinutes,
               onSnooze: onSnooze,
               onPutDown: onPutDown,

@@ -50,6 +50,9 @@ class ReminderController {
   String? _activePackage;
   int _snoozeCount = 0;
 
+  /// 上一次触发提醒的应用包名，用于界定“同一轮连续使用”。
+  String? _lastTriggerPackage;
+
   /// 当前是否正在展示提醒（用于统计，未用于拦截）。
   bool get isShowing => _activePackage != null;
 
@@ -60,8 +63,16 @@ class ReminderController {
     // _showing 永远为 true，后续提醒全被静默拦截。
     // 改由 ForegroundMonitor 的 _sessionTriggered 标志控制同一会话的重复提醒。
 
+    // “连续再刷”计数只在同一应用的一轮连续使用内累加：换到别的应用
+    // （或用户点“现在放下”）视为新一轮，计数归零。
+    // 旧实现在每次触发时无条件清零，导致 _snoozeCount 永远到不了
+    // maxSnoozeCount，“连续再刷 3 次后缩短为 2 分钟”的规则从未生效。
+    if (event.packageName != _lastTriggerPackage) {
+      _snoozeCount = 0;
+      _lastTriggerPackage = event.packageName;
+    }
+
     _activePackage = event.packageName;
-    _snoozeCount = 0;
 
     final mode = _settings.reminderMode;
     final minutes = _snoozeMinutes;
@@ -84,7 +95,7 @@ class ReminderController {
       );
     } else {
       // iOS / 桌面预览：直接 App 内提醒（无后台 Overlay 概念）。
-      _openInAppReminder(mode, event.packageName, minutes);
+      _openInAppReminder(mode, appLabel, minutes);
     }
   }
 
@@ -106,6 +117,7 @@ class ReminderController {
         await OverlayWindowService.sendReminderData(
           mode: mode.storageKey,
           packageName: packageName,
+          appName: appLabel,
           snoozeMinutes: snoozeMinutes,
         );
         await OverlayWindowService.show();
@@ -119,8 +131,14 @@ class ReminderController {
       }
     }
 
-    // 无论Overlay是否成功，都发送系统通知作为兜底（必达通道）
-    final notificationSent = await _sendNotificationSafely(mode, continuousMinutes, appLabel);
+    // 系统通知是兜底必达通道，始终发送；但 Overlay 已经显示时降级为静默
+    // （不响铃、不震动、不弹全屏），避免悬浮窗 + 通知 + 震动三重叠的重复打扰。
+    final notificationSent = await _sendNotificationSafely(
+      mode,
+      continuousMinutes,
+      appLabel,
+      silent: overlayOk,
+    );
 
     if (overlayOk) {
       _logger.info('Overlay 已显示（${notificationSent ? "通知已发送" : "通知失败"}）', tag: 'Reminder');
@@ -132,7 +150,7 @@ class ReminderController {
       'Overlay 未生效（权限=$granted），${notificationSent ? "已发送通知" : "通知失败"}，尝试打开 App 内提醒',
       tag: 'Reminder',
     );
-    final appPageOpened = _openInAppReminder(mode, packageName, snoozeMinutes);
+    final appPageOpened = _openInAppReminder(mode, appLabel, snoozeMinutes);
     
     // 如果所有提醒通道都失败，强制记录严重错误
     if (!notificationSent && !appPageOpened) {
@@ -143,13 +161,22 @@ class ReminderController {
     }
   }
 
-  /// 安全发送系统通知，捕获所有异常并返回是否成功
-  Future<bool> _sendNotificationSafely(ReminderMode mode, int continuousMinutes, String appLabel) async {
+  /// 安全发送系统通知，捕获所有异常并返回是否成功。
+  ///
+  /// [silent] 为 true 时只留一条静默通知（不响铃/不震动/不弹全屏），
+  /// 用于 Overlay 已成功展示的场景。
+  Future<bool> _sendNotificationSafely(
+    ReminderMode mode,
+    int continuousMinutes,
+    String appLabel, {
+    bool silent = false,
+  }) async {
     try {
       return await NotificationReminderService().showReminder(
         mode: mode,
         continuousMinutes: continuousMinutes,
         appLabel: appLabel,
+        silent: silent,
       );
     } catch (e) {
       _logger.error('发送系统通知失败: $e', tag: 'Reminder');
@@ -177,8 +204,10 @@ class ReminderController {
   Future<void> snooze() async {
     if (_activePackage == null) return;
 
-    _snoozeCount += 1;
+    // 先按“当前累计次数”决定本次时长，再累加：
+    // 第 1~3 次再刷仍是 5 分钟，第 4 次起缩短为 2 分钟（PRD）。
     final minutes = _snoozeMinutes;
+    _snoozeCount += 1;
 
     _activePackage = null;
     await OverlayWindowService.hide();
@@ -201,6 +230,9 @@ class ReminderController {
     if (_activePackage == null) return;
 
     _activePackage = null;
+    // 用户已放下：这一轮连续使用结束，“再刷”计数归零。
+    _snoozeCount = 0;
+    _lastTriggerPackage = null;
     await OverlayWindowService.hide();
     await NotificationReminderService().cancelReminder();
     _monitor.resetSession();
@@ -222,6 +254,7 @@ class ReminderController {
   /// 计算本次“再刷”分钟数。
   ///
   /// PRD：连续选择 > 3 次后，第 4 次起自动缩短为 2 分钟。
+  /// 计数由 [handleTrigger] 按应用维护、[putDown] 归零，见 [_snoozeCount]。
   /// 调试模式下自动缩短为 30 秒（0.5 分钟）。
   int get _snoozeMinutes {
     // 调试模式：30 秒后再次提醒
@@ -235,7 +268,7 @@ class ReminderController {
 
   bool _openInAppReminder(
     ReminderMode mode,
-    String packageName,
+    String appName,
     int minutes,
   ) {
     final navigator = appNavigatorKey.currentState;
@@ -249,7 +282,7 @@ class ReminderController {
         fullscreenDialog: mode == ReminderMode.strong,
         builder: (_) => InAppReminderPage(
           mode: mode,
-          packageName: packageName,
+          appName: appName,
           snoozeMinutes: minutes,
           onSnooze: () {
             navigator.pop();

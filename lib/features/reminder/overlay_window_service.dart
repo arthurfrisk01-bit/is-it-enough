@@ -73,14 +73,19 @@ class OverlayWindowService {
   }
 
   /// 向 Overlay 内的 Dart 入口发送当前提醒数据。
+  ///
+  /// [appName] 是给用户看应用名称（如“微信”）；缺失时 Overlay 侧回退到
+  /// [packageName]，避免出现“你已经在 com.tencent.mm 上停留太久”这种提示。
   static Future<void> sendReminderData({
     required String mode,
     required String packageName,
     required int snoozeMinutes,
+    String? appName,
   }) async {
     await sendData({
       'mode': mode,
       'packageName': packageName,
+      'appName': appName,
       'snoozeMinutes': snoozeMinutes,
     });
   }

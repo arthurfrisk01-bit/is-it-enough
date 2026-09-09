@@ -1,0 +1,207 @@
+package com.isitenough.app
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import android.util.Log
+import io.flutter.FlutterInjector
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.embedding.engine.loader.FlutterLoader
+import io.flutter.plugin.common.MethodChannel
+
+/**
+ * 后台监控保活前台服务。
+ *
+ * 两件事：
+ * 1. 常驻低优先级前台通知，把进程提升为 foreground 优先级，
+ *    降低被 ROM / 低内存回收的概率；
+ * 2. 当 App 界面不存在时（开机自启、进程被系统回收后由 START_STICKY 重建），
+ *    拉起一个无界面的 Flutter 引擎执行 `monitorMain` 入口，让监控继续工作。
+ *
+ * 互斥：界面存活时（[uiAlive] == true）不创建 headless 引擎，
+ * 界面创建时主动销毁已存在的 headless 引擎，避免两个引擎同时轮询造成重复提醒。
+ */
+class MonitorForegroundService : Service() {
+
+    companion object {
+        private const val TAG = "IsItEnough/MonitorService"
+        private const val CHANNEL_ID = "monitor_keepalive"
+        private const val NOTIFICATION_ID = 1002
+        private const val DART_ENTRYPOINT = "monitorMain"
+
+        private const val ACTION_START = "com.isitenough.app.action.START_MONITOR_SERVICE"
+        private const val ACTION_STOP = "com.isitenough.app.action.STOP_MONITOR_SERVICE"
+
+        /** App 界面是否存活，由 MainActivity 维护。 */
+        @Volatile
+        var uiAlive: Boolean = false
+
+        @Volatile
+        private var headlessEngine: FlutterEngine? = null
+
+        /** 启动保活服务（幂等）。 */
+        fun start(context: Context) {
+            val intent = Intent(context, MonitorForegroundService::class.java).setAction(ACTION_START)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "启动后台监控服务失败", t)
+            }
+        }
+
+        /** 停止保活服务。 */
+        fun stop(context: Context) {
+            val intent = Intent(context, MonitorForegroundService::class.java).setAction(ACTION_STOP)
+            try {
+                context.startService(intent)
+            } catch (t: Throwable) {
+                Log.e(TAG, "停止后台监控服务失败", t)
+            }
+        }
+
+        /** App 界面创建时调用：销毁无界面引擎，由界面引擎接管监控。 */
+        fun releaseHeadlessEngine() {
+            headlessEngine?.let { engine ->
+                Log.i(TAG, "界面已创建，销毁 headless FlutterEngine")
+                try {
+                    engine.destroy()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "销毁 headless FlutterEngine 失败", t)
+                }
+            }
+            headlessEngine = null
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannel()
+        promoteToForeground()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                releaseHeadlessEngine()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> {
+                // 仅当 App 界面不存在时才需要无界面引擎。
+                if (!uiAlive) {
+                    ensureHeadlessEngine()
+                }
+            }
+        }
+        // 被系统回收后自动重建，尽量让监控不中断。
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        releaseHeadlessEngine()
+        super.onDestroy()
+    }
+
+    /** 提升为前台服务，常驻通知用最低优先级避免打扰。 */
+    private fun promoteToForeground() {
+        val notification = buildNotification()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "startForeground 失败", t)
+        }
+    }
+
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "后台守护",
+            NotificationManager.IMPORTANCE_MIN,
+        ).apply {
+            description = "保持监控在后台运行的常驻通知，不响铃不震动"
+            setShowBadge(false)
+            enableVibration(false)
+            setSound(null, null)
+            enableLights(false)
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun buildNotification(): Notification {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val contentIntent = PendingIntent.getActivity(this, 0, intent, pendingFlags)
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+
+        return builder
+            .setContentTitle("够了吗")
+            .setContentText("正在后台守护你的专注，点击打开")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentIntent(contentIntent)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .build()
+    }
+
+    /**
+     * 创建无界面 Flutter 引擎并执行 `monitorMain` 入口。
+     *
+     * 失败时只记日志：服务继续保活，App 界面侧的监控不受影响。
+     */
+    private fun ensureHeadlessEngine() {
+        if (headlessEngine != null) return
+        try {
+            val loader: FlutterLoader = FlutterInjector.instance().flutterLoader()
+            loader.startInitialization(applicationContext)
+            loader.ensureInitializationComplete(applicationContext, null)
+
+            val engine = FlutterEngine(applicationContext)
+            engine.dartExecutor.executeDartEntrypoint(
+                DartExecutor.DartEntrypoint(loader.findAppBundlePath(), DART_ENTRYPOINT)
+            )
+            headlessEngine = engine
+            Log.i(TAG, "headless FlutterEngine 已启动（entrypoint=$DART_ENTRYPOINT）")
+        } catch (t: Throwable) {
+            Log.e(TAG, "headless FlutterEngine 启动失败，监控暂时只能依赖界面进程", t)
+            headlessEngine = null
+        }
+    }
+}
