@@ -23,6 +23,12 @@
     <!-- 强提醒全屏通知（锁屏时悬浮窗不可见，由系统全屏 Intent 兜底） -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!--
+      检查更新需要访问 GitHub Releases（唯一联网功能，默认不自动执行）。
+      其余所有数据仍只存在本机，不上传。
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- 开机自启（可选，用于重启后恢复监听） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

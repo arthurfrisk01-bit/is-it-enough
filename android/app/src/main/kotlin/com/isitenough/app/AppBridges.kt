@@ -43,6 +43,18 @@ object AppBridges {
             LogStore.append(context, "注册悬浮窗通道失败: ${t.message}", "Native")
         }
         try {
+            AppLaunchBridge(context).register(engine)
+        } catch (t: Throwable) {
+            Log.e(TAG, "注册 AppLaunchBridge 失败", t)
+            LogStore.append(context, "注册启动通道失败: ${t.message}", "Native")
+        }
+        try {
+            InstalledAppsBridge(context).register(engine)
+        } catch (t: Throwable) {
+            Log.e(TAG, "注册 InstalledAppsBridge 失败", t)
+            LogStore.append(context, "注册应用清单通道失败: ${t.message}", "Native")
+        }
+        try {
             registerDiagnosis(engine, context)
             registerMonitorService(engine, context)
         } catch (t: Throwable) {

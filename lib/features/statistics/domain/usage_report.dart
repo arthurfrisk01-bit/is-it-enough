@@ -77,10 +77,13 @@ class UsageReport {
       apps.fold(Duration.zero, (sum, app) => sum + app.total);
 
   /// 时间线：把所有会话按开始时间倒序摊平。
+  ///
+  /// 过滤掉不足 1 分钟的碎片会话（切来切去的误触记录），避免刷屏。
   List<TimelineEntry> get timeline {
     final entries = <TimelineEntry>[];
     for (final app in apps) {
       for (final session in app.sessions) {
+        if (session.duration < const Duration(minutes: 1)) continue;
         entries.add(TimelineEntry(app: app, session: session));
       }
     }

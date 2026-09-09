@@ -15,6 +15,9 @@ class MainActivity : FlutterActivity() {
         private const val STRONG_CHANNEL_ID = "reminder_strong"
         private const val WEAK_CHANNEL_ID = "reminder_soft"
         private const val SILENT_CHANNEL_ID = "reminder_silent"
+
+        /** “现在放下”拉起 App 时携带的动作标记。 */
+        const val EXTRA_OPEN_BREATHING = "com.isitenough.app.extra.OPEN_BREATHING"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,7 +27,24 @@ class MainActivity : FlutterActivity() {
         MonitorForegroundService.uiAlive = true
         super.onCreate(savedInstanceState)
         createNotificationChannels()
+        // 冷启动时先把动作暂存，Dart 侧 AppLaunchChannel.init() 会取走。
+        if (intent?.getBooleanExtra(EXTRA_OPEN_BREATHING, false) == true) {
+            AppLaunchBridge.setPending(AppLaunchBridge.ACTION_OPEN_BREATHING)
+        }
         LogStore.append(this, "MainActivity.onCreate，界面引擎接管监控", "Native")
+    }
+
+    /**
+     * singleTop：界面已存在时“现在放下”只会走这里。
+     * 此时 Dart 已经初始化完毕，直接回传动作即可。
+     */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_BREATHING, false)) {
+            AppLaunchBridge.setPending(AppLaunchBridge.ACTION_OPEN_BREATHING)
+            AppLaunchBridge.deliverPending()
+        }
     }
 
     override fun onDestroy() {
@@ -34,6 +54,7 @@ class MainActivity : FlutterActivity() {
         // 界面引擎即将销毁：若提醒悬浮窗还开着就先关掉。窗口上的按钮回调指向
         // 这个已销毁的引擎，留着只会变成挡住屏幕、点不动的空窗。
         ReminderOverlay.hide()
+        AppLaunchBridge.detach()
         LogStore.append(this, "MainActivity.onDestroy，界面退出", "Native")
         super.onDestroy()
     }
@@ -42,6 +63,9 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         // 界面引擎注册全部原生通道（使用情况访问 / 诊断 / 保活服务 / 日志）。
         AppBridges.registerAll(flutterEngine, this)
+        // 启动通道只记住界面引擎：headless 引擎没有 Navigator，
+        // “现在放下”的回传必须落到界面引擎才有意义。
+        AppLaunchBridge.attachUi(flutterEngine)
     }
 
     /**

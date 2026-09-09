@@ -1,4 +1,5 @@
 import 'package:is_it_enough/core/constants/app_constants.dart';
+import 'package:is_it_enough/core/constants/monitor_list_modes.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 
 /// 应用配置快照。
@@ -10,10 +11,12 @@ class AppConfig {
     this.thresholdMinutes = AppConstants.defaultThresholdMinutes,
     this.monitoringEnabled = true,
     this.autoStartEnabled = true,
-    this.blacklistedPackageNames = const <String>{},
+    this.monitorListMode = MonitorListMode.off,
+    this.listPackageNames = const <String>{},
     this.debounceEnabled = true,
     this.debugMode = false,
     this.focusSuppressUntilMs = 0,
+    this.schedule = const ScheduleConfig(),
   });
 
   /// 提醒强度：弱 / 强。
@@ -30,10 +33,14 @@ class AppConfig {
   /// 关掉后 [BootReceiver] 不再拉起保活服务，用户需手动打开 App。
   final bool autoStartEnabled;
 
-  /// 监控名单：若非空，则只监控这些包名；为空时表示监控所有非白名单应用。
+  /// 监控名单模式：不启用 / 黑名单 / 白名单。
   ///
-  /// MVP 先提供“黑名单/名单编辑”的存储结构，后续可扩展为白名单语义。
-  final Set<String> blacklistedPackageNames;
+  /// 黑名单与白名单互斥，默认 [MonitorListMode.off]（两者都不开启）。
+  final MonitorListMode monitorListMode;
+
+  /// 名单包名集合，语义由 [monitorListMode] 决定：
+  /// 黑名单=这些应用不监控；白名单=只监控这些应用。
+  final Set<String> listPackageNames;
 
   /// 消抖开关：短暂切换其他应用30s内回到原应用继续计算提醒时间。
   final bool debounceEnabled;
@@ -47,6 +54,10 @@ class AppConfig {
   /// 无界面引擎与界面引擎读的是同一份值。
   final int focusSuppressUntilMs;
 
+  /// 时段限制（可选开启）：开启后只有时段内按 [reminderMode] 提醒，
+  /// 时段外按 [ScheduleConfig.outsideMode] 处理。
+  final ScheduleConfig schedule;
+
   /// 勿扰截止时刻；已过期或未设置时返回 null。
   DateTime? get focusSuppressUntil {
     if (focusSuppressUntilMs <= 0) return null;
@@ -59,21 +70,24 @@ class AppConfig {
     int? thresholdMinutes,
     bool? monitoringEnabled,
     bool? autoStartEnabled,
-    Set<String>? blacklistedPackageNames,
+    MonitorListMode? monitorListMode,
+    Set<String>? listPackageNames,
     bool? debounceEnabled,
     bool? debugMode,
     int? focusSuppressUntilMs,
+    ScheduleConfig? schedule,
   }) {
     return AppConfig(
       reminderMode: reminderMode ?? this.reminderMode,
       thresholdMinutes: thresholdMinutes ?? this.thresholdMinutes,
       monitoringEnabled: monitoringEnabled ?? this.monitoringEnabled,
       autoStartEnabled: autoStartEnabled ?? this.autoStartEnabled,
-      blacklistedPackageNames:
-          blacklistedPackageNames ?? this.blacklistedPackageNames,
+      monitorListMode: monitorListMode ?? this.monitorListMode,
+      listPackageNames: listPackageNames ?? this.listPackageNames,
       debounceEnabled: debounceEnabled ?? this.debounceEnabled,
       debugMode: debugMode ?? this.debugMode,
       focusSuppressUntilMs: focusSuppressUntilMs ?? this.focusSuppressUntilMs,
+      schedule: schedule ?? this.schedule,
     );
   }
 }

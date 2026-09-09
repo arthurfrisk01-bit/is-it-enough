@@ -96,7 +96,7 @@ void _startAndroidMonitor(SettingsService settingsService, StatisticsService sta
     settingsService: settingsService,
     onTrigger: (event) {
       logger.info('触发提醒: $event', tag: 'Monitor');
-      statsService.recordTrigger();
+      statsService.recordTrigger(packageName: event.packageName);
       // 提醒控制器会按设置模式展示 Overlay 或 App 内提醒。
       _reminderController?.handleTrigger(event);
     },

@@ -48,12 +48,24 @@ class StatisticsService extends ChangeNotifier {
   final UsageStatsMethodChannel _usageStats;
 
   AppStatistics _stats = const AppStatistics();
+
+  /// 今日各应用“触发超时次数”（包名 → 次数）。
+  Map<String, int> _todayTriggerCounts = <String, int>{};
+
   UsageReport? _usageReport;
   bool _usageLoading = false;
   String? _usageError;
   bool _usageLoadedOnce = false;
 
   AppStatistics get stats => _stats;
+
+  /// 今日各应用触发超时次数（只读快照）。
+  Map<String, int> get todayTriggerCounts =>
+      Map<String, int>.unmodifiable(_todayTriggerCounts);
+
+  /// 某个应用今日触发超时的次数。
+  int triggerCountFor(String packageName) =>
+      _todayTriggerCounts[packageName] ?? 0;
 
   /// 今日使用量/时间线数据；尚未拉取或拉取失败时为 null。
   UsageReport? get usageReport => _usageReport;
@@ -67,14 +79,23 @@ class StatisticsService extends ChangeNotifier {
 
   Future<void> load() async {
     _stats = await _repository.load();
+    _todayTriggerCounts = _repository.loadTodayTriggerCounts();
     notifyListeners();
   }
 
-  Future<void> recordTrigger() async {
+  /// 记录一次触发提醒；[packageName] 用于今日各应用次数统计。
+  Future<void> recordTrigger({String? packageName}) async {
     _stats = _stats.copyWith(
       totalTriggers: _stats.totalTriggers + 1,
       lastTriggerTime: DateTime.now(),
     );
+    if (packageName != null && packageName.isNotEmpty) {
+      _todayTriggerCounts = <String, int>{
+        ..._todayTriggerCounts,
+        packageName: (_todayTriggerCounts[packageName] ?? 0) + 1,
+      };
+      await _repository.saveTodayTriggerCounts(_todayTriggerCounts);
+    }
     await _repository.save(_stats);
     notifyListeners();
   }
@@ -134,6 +155,8 @@ class StatisticsService extends ChangeNotifier {
 
   Future<void> reset() async {
     _stats = const AppStatistics();
+    _todayTriggerCounts = <String, int>{};
+    await _repository.saveTodayTriggerCounts(_todayTriggerCounts);
     await _repository.save(_stats);
     notifyListeners();
   }

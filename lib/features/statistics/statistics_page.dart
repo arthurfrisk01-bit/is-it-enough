@@ -293,6 +293,7 @@ class _UsageSection extends StatelessWidget {
           _UsageBarRow(
             app: top[i],
             ratio: maxTotal <= 0 ? 0 : top[i].total.inMilliseconds / maxTotal,
+            triggerCount: service.triggerCountFor(top[i].packageName),
           ),
         ],
       ],
@@ -301,10 +302,17 @@ class _UsageSection extends StatelessWidget {
 }
 
 class _UsageBarRow extends StatelessWidget {
-  const _UsageBarRow({required this.app, required this.ratio});
+  const _UsageBarRow({
+    required this.app,
+    required this.ratio,
+    this.triggerCount = 0,
+  });
 
   final AppUsage app;
   final double ratio;
+
+  /// 今日该应用触发超时的次数（0 表示没触发过）。
+  final int triggerCount;
 
   @override
   Widget build(BuildContext context) {
@@ -332,6 +340,24 @@ class _UsageBarRow extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.65),
               ),
             ),
+            if (triggerCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFB4A2).withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '超时 $triggerCount 次',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFFFB4A2),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 6),
@@ -404,7 +430,7 @@ class _TimelineSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Text(
-              '仅显示最近 \$_maxEntries 条',
+              '仅显示最近 $_maxEntries 条',
               style: TextStyle(
                 fontSize: 11,
                 color: Colors.white.withValues(alpha: 0.4),

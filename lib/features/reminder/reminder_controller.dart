@@ -7,9 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 import 'package:is_it_enough/core/navigation/app_navigator.dart';
-import 'package:is_it_enough/features/breathing/breathing_page.dart';
 import 'package:is_it_enough/features/monitoring/data/foreground_monitor.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
+import 'package:is_it_enough/features/reminder/app_launch_channel.dart';
 import 'package:is_it_enough/features/reminder/in_app_reminder_page.dart';
 import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
@@ -75,7 +75,8 @@ class ReminderController {
 
     _activePackage = event.packageName;
 
-    final mode = _settings.reminderMode;
+    // 时段限制可能覆盖本次提醒强度（时段外可为弱提醒/不提醒）。
+    final mode = event.modeOverride ?? _settings.reminderMode;
     final minutes = _snoozeMinutes;
     final continuousMinutes = (event.continuousSeconds / 60).ceil();
     final appLabel = event.appLabel ?? event.packageName;
@@ -265,15 +266,14 @@ class ReminderController {
     await _statistics.recordPutDown();
     _logger.info('现在放下', tag: 'Reminder');
 
-    // 打开全屏黑色呼吸引导页。
-    final navigator = appNavigatorKey.currentState;
-    if (navigator == null) return;
-    await navigator.push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => const BreathingPage(),
-      ),
-    );
+    // 拉起 App 并打开全屏呼吸引导页。
+    //
+    // 旧实现直接 `appNavigatorKey.currentState.push(...)`，有两个问题：
+    // 1) 界面引擎在后台时，push 只压在后台导航栈上，用户看不到呼吸页，
+    //    等自己切回 App 才突然弹出（就是用户反馈的那个 bug）；
+    // 2) headless 引擎处理点击时 navigator 为 null，直接 return，什么都不发生。
+    // 现在统一请原生把 MainActivity 拉到前台，再由界面引擎推呼吸页。
+    await AppLaunchChannel.requestOpenBreathingPage();
   }
 
   /// 计算本次“再刷”分钟数。

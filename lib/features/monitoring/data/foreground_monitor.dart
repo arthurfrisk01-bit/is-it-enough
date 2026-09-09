@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:is_it_enough/core/constants/app_constants.dart';
+import 'package:is_it_enough/core/constants/monitor_list_modes.dart';
 import 'package:is_it_enough/features/monitoring/data/monitor_service_channel.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
@@ -42,6 +43,9 @@ class ForegroundMonitor {
 
   /// “专注勿扰”期内只记一条日志。
   bool _loggedFocusState = false;
+
+  /// “时段外不提醒”期内只记一条日志。
+  bool _loggedOutsideSchedule = false;
 
   /// 包名 → 应用显示名缓存（避免每轮都走一次 MethodChannel）。
   final Map<String, String> _labelCache = {};
@@ -238,6 +242,24 @@ class ForegroundMonitor {
     final elapsed = now.difference(_currentSince ?? now);
     unawaited(_syncNotificationStatus(package, elapsed));
 
+    // 时段限制：时段外按设置处理，off 表示完全不提醒（只记录使用时长）。
+    // 这里直接 return 且不置 _sessionTriggered，进入时段后本会话仍能正常提醒。
+    final effectiveMode = _settings.effectiveReminderModeNow;
+    if (effectiveMode == null) {
+      if (!_loggedOutsideSchedule) {
+        logger.info(
+          '时段外（${_settings.schedule.label}）不提醒，只记录使用时长',
+          tag: 'Monitor',
+        );
+        _loggedOutsideSchedule = true;
+      }
+      return;
+    }
+    if (_loggedOutsideSchedule) {
+      logger.info('进入限制时段，恢复提醒判定', tag: 'Monitor');
+      _loggedOutsideSchedule = false;
+    }
+
     // 仍在“再刷 X 分钟”屏蔽期内。
     final suppressedUntil = _suppressedUntil;
     if (suppressedUntil != null && now.isBefore(suppressedUntil)) {
@@ -257,6 +279,7 @@ class ForegroundMonitor {
           packageName: package,
           continuousSeconds: elapsed.inSeconds,
           appLabel: appLabel,
+          modeOverride: effectiveMode,
         ),
       );
       return;
@@ -276,6 +299,7 @@ class ForegroundMonitor {
           packageName: package,
           continuousSeconds: elapsed.inSeconds,
           appLabel: appLabel,
+          modeOverride: effectiveMode,
         ),
       );
     } else if (!_sessionTriggered) {
@@ -317,9 +341,23 @@ class ForegroundMonitor {
     await MonitorServiceChannel.updateStatus(text);
   }
 
-  bool _shouldIgnore(String packageName) =>
-      AppConstants.isIgnoredPackage(packageName) ||
-      _settings.blacklistedPackageNames.contains(packageName);
+  /// 是否跳过该包名的监控。
+  ///
+  /// - 名单模式不启用：只跳过系统/桌面等固定忽略包；
+  /// - 黑名单：名单内应用不监控；
+  /// - 白名单：只监控名单内应用（名单为空则什么都不监控，设置页会给出提示）。
+  bool _shouldIgnore(String packageName) {
+    if (AppConstants.isIgnoredPackage(packageName)) return true;
+    final list = _settings.listPackageNames;
+    switch (_settings.monitorListMode) {
+      case MonitorListMode.off:
+        return false;
+      case MonitorListMode.blacklist:
+        return list.contains(packageName);
+      case MonitorListMode.whitelist:
+        return !list.contains(packageName);
+    }
+  }
 
   /// 把当前活跃会话“停靠”起来（类似切走应用），等待消抖窗口内恢复。
   ///

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
+import 'package:is_it_enough/core/constants/monitor_list_modes.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 import 'package:is_it_enough/core/navigation/app_navigator.dart';
 import 'package:is_it_enough/features/breathing/breathing_page.dart';
 import 'package:is_it_enough/features/logs/log_export_dialog.dart';
 import 'package:is_it_enough/features/logs/log_viewer_page.dart';
 import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
+import 'package:is_it_enough/features/settings/presentation/app_picker_page.dart';
 import 'package:is_it_enough/features/settings/presentation/auto_start_guide_page.dart';
+import 'package:is_it_enough/features/settings/presentation/install_trust_page.dart';
+import 'package:is_it_enough/features/settings/presentation/update_page.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/permission_diagnosis_service.dart';
@@ -44,7 +48,13 @@ class SettingsPage extends StatelessWidget {
             const SizedBox(height: 12),
             _buildThresholdCard(context, settings),
             const SizedBox(height: 12),
-            _buildBlacklistCard(context, settings),
+            _buildListModeCard(context, settings),
+            const SizedBox(height: 12),
+            _buildScheduleCard(context, settings),
+            const SizedBox(height: 12),
+            _buildUpdateCard(context),
+            const SizedBox(height: 12),
+            _buildTrustCard(context),
             const SizedBox(height: 12),
             _buildDebugSection(context, settings),
             const SizedBox(height: 12),
@@ -246,95 +256,247 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  // ---------- 监控名单 ----------
+  // ---------- 监控名单（模式 + 详细选单） ----------
 
-  Widget _buildBlacklistCard(
-    BuildContext context,
-    SettingsService settings,
-  ) {
+  Widget _buildListModeCard(BuildContext context, SettingsService settings) {
+    final mode = settings.monitorListMode;
+    final list = settings.listPackageNames;
     return _SectionCard(
-      title: '监控名单',
-      icon: Icons.apps_outlined,
-      trailing: IconButton(
-        tooltip: '添加包名',
-        onPressed: () => _showAddPackageDialog(context, settings),
-        icon: const Icon(Icons.add),
-      ),
-      child: settings.blacklistedPackageNames.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 8),
-              child: Text(
-                '暂未设置名单。\nMVP 先支持“黑名单”：添加后这些 App 不触发提醒。',
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: Colors.white.withValues(alpha: 0.55),
+      title: '监控名单模式',
+      icon: Icons.filter_alt_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '黑名单与白名单互斥，也可以两个都不开启（默认监控所有应用）。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (final item in MonitorListMode.values)
+            _ListModeOption(
+              title: item.label,
+              subtitle: item.description,
+              selected: mode == item,
+              onTap: () => settings.setMonitorListMode(item),
+            ),
+          if (mode.isEnabled) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openAppPicker(context, settings),
+                icon: const Icon(Icons.apps, size: 18),
+                label: Text(
+                  list.isEmpty
+                      ? '选择应用（已选 0 个）'
+                      : '管理名单（已选 ${list.length} 个）',
                 ),
               ),
-            )
-          : Column(
-              children: [
-                for (final package in settings.blacklistedPackageNames.toList()..sort())
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: const Icon(Icons.visibility_off_outlined, size: 20),
-                    title: Text(
-                      package,
-                      style: const TextStyle(fontFamily: 'monospace'),
-                    ),
-                    trailing: IconButton(
-                      tooltip: '移除',
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () {
-                        final next = {...settings.blacklistedPackageNames}
-                          ..remove(package);
-                        settings.updateBlacklist(next);
-                      },
-                    ),
-                  ),
-              ],
             ),
+            if (mode == MonitorListMode.whitelist && list.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '白名单为空：当前不会监控任何应用，请先添加应用。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: const Color(0xFFFFB4A2).withValues(alpha: 0.95),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
     );
   }
 
-  Future<void> _showAddPackageDialog(
+  Future<void> _openAppPicker(
     BuildContext context,
     SettingsService settings,
   ) async {
-    final controller = TextEditingController();
-    final packageName = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('添加不监控的包名'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '包名',
-            hintText: '例如 com.tencent.mm',
-          ),
+    final result = await Navigator.of(context).push<Set<String>>(
+      MaterialPageRoute<Set<String>>(
+        fullscreenDialog: true,
+        builder: (_) => AppPickerPage(
+          mode: settings.monitorListMode,
+          initialSelected: settings.listPackageNames,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+      ),
+    );
+    if (result != null) {
+      await settings.updateListPackages(result);
+    }
+  }
+
+  // ---------- 时段限制 ----------
+
+  Widget _buildScheduleCard(BuildContext context, SettingsService settings) {
+    final schedule = settings.schedule;
+    return _SectionCard(
+      title: '时段限制',
+      icon: Icons.schedule_outlined,
+      trailing: Switch(
+        value: schedule.enabled,
+        onChanged: (value) => settings.updateSchedule(
+          schedule.copyWith(enabled: value),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            schedule.enabled
+                ? '只在 ${schedule.label} 内按上面的“提醒强度”提醒，时段外按下面的设置处理。'
+                : '关闭时不限时段，全天按“提醒强度”提醒。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
           ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.pop(context, value);
-            },
-            child: const Text('添加'),
+          if (schedule.enabled) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _TimeField(
+                    label: '开始时间',
+                    minutes: schedule.startMinutes,
+                    onPick: (minutes) => settings.updateSchedule(
+                      schedule.copyWith(startMinutes: minutes),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _TimeField(
+                    label: '结束时间',
+                    minutes: schedule.endMinutes,
+                    onPick: (minutes) => settings.updateSchedule(
+                      schedule.copyWith(endMinutes: minutes),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '跨零点也可以，例如 22:00 开始、07:00 结束。',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.45),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '时段外提醒强度',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final outside in OutsideScheduleMode.values)
+              _ListModeOption(
+                title: outside.label,
+                subtitle: outside.description,
+                selected: schedule.outsideMode == outside,
+                onTap: () => settings.updateSchedule(
+                  schedule.copyWith(outsideMode: outside),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ---------- 检查更新 ----------
+
+  Widget _buildUpdateCard(BuildContext context) {
+    return _SectionCard(
+      title: '检查更新',
+      icon: Icons.system_update_alt,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFD89C).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: const Color(0xFFFFD89C).withValues(alpha: 0.4),
+              ),
+            ),
+            child: Text(
+              '更新会联网，请注意隐私安全：\n'
+              '检查更新会访问 GitHub 的公开接口，只发送当前版本号用于比对，'
+              '不会上传使用数据、应用清单或任何个人信息。不点击时本应用完全离线。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.6,
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const UpdatePage()),
+              ),
+              icon: const Icon(Icons.cloud_download_outlined, size: 18),
+              label: const Text('打开检查更新'),
+            ),
           ),
         ],
       ),
     );
+  }
 
-    if (packageName != null && packageName.isNotEmpty) {
-      final next = {...settings.blacklistedPackageNames, packageName};
-      await settings.updateBlacklist(next);
-    }
+  // ---------- 安装来源 / 受限设置 ----------
+
+  Widget _buildTrustCard(BuildContext context) {
+    return _SectionCard(
+      title: '安装来源与受限设置',
+      icon: Icons.verified_user_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Android 13 及以上，通过浏览器或文件管理器侧载（非应用商店）安装的应用会被系统标记为“受限”，'
+            '导致“使用情况访问”“悬浮窗”等权限开关置灰、点不动。可以在这里自检安装来源并按系统要求手动解除。',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.6,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const InstallTrustPage(),
+                ),
+              ),
+              icon: const Icon(Icons.shield_outlined, size: 18),
+              label: const Text('查看安装来源自检'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ---------- 权限引导 ----------
@@ -829,6 +991,133 @@ class _ModeOption extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 通用单选行（名单模式 / 时段外强度共用）。
+class _ListModeOption extends StatelessWidget {
+  const _ListModeOption({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected ? primary.withValues(alpha: 0.12) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? primary : Colors.white.withValues(alpha: 0.10),
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: selected ? primary : Colors.white38,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 时间选择字段（点击弹出系统时间选择器）。
+class _TimeField extends StatelessWidget {
+  const _TimeField({
+    required this.label,
+    required this.minutes,
+    required this.onPick,
+  });
+
+  final String label;
+  final int minutes;
+  final ValueChanged<int> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: TimeOfDay(
+            hour: (minutes ~/ 60) % 24,
+            minute: minutes % 60,
+          ),
+        );
+        if (picked != null) {
+          onPick(picked.hour * 60 + picked.minute);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              ScheduleConfig.formatMinutes(minutes),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+          ],
         ),
       ),
     );

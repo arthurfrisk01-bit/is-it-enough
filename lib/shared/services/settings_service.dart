@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:is_it_enough/core/constants/app_constants.dart';
+import 'package:is_it_enough/core/constants/monitor_list_modes.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 import 'package:is_it_enough/features/settings/data/models/app_config.dart';
 import 'package:is_it_enough/features/settings/data/repositories/settings_repository.dart';
@@ -20,9 +21,29 @@ class SettingsService extends ChangeNotifier {
   int get thresholdMinutes => _config.thresholdMinutes;
   bool get monitoringEnabled => _config.monitoringEnabled;
   bool get autoStartEnabled => _config.autoStartEnabled;
-  Set<String> get blacklistedPackageNames => _config.blacklistedPackageNames;
+  MonitorListMode get monitorListMode => _config.monitorListMode;
+  Set<String> get listPackageNames => _config.listPackageNames;
+  ScheduleConfig get schedule => _config.schedule;
   bool get debounceEnabled => _config.debounceEnabled;
   bool get debugMode => _config.debugMode;
+
+  /// 当前生效的提醒强度。
+  ///
+  /// 时段限制未开启时就是 [reminderMode]；开启后，时段内同样用
+  /// [reminderMode]，时段外取 [ScheduleConfig.outsideMode]
+  /// （返回 null 表示时段外完全不提醒）。
+  ReminderMode? get effectiveReminderModeNow {
+    final s = _config.schedule;
+    if (!s.enabled || s.containsNow()) return _config.reminderMode;
+    switch (s.outsideMode) {
+      case OutsideScheduleMode.off:
+        return null;
+      case OutsideScheduleMode.soft:
+        return ReminderMode.soft;
+      case OutsideScheduleMode.strong:
+        return ReminderMode.strong;
+    }
+  }
 
   /// “专注勿扰”截止时刻；未开启或已过期时为 null。
   DateTime? get focusSuppressUntil => _config.focusSuppressUntil;
@@ -63,11 +84,19 @@ class SettingsService extends ChangeNotifier {
     await _update(_config.copyWith(autoStartEnabled: enabled));
   }
 
-  /// 替换监控名单（去重并排序，保证持久化稳定）。
-  Future<void> updateBlacklist(Set<String> packages) async {
-    await _update(
-      _config.copyWith(blacklistedPackageNames: {...packages}),
-    );
+  /// 切换监控名单模式（不启用 / 黑名单 / 白名单）。
+  Future<void> setMonitorListMode(MonitorListMode mode) async {
+    await _update(_config.copyWith(monitorListMode: mode));
+  }
+
+  /// 替换名单里的包名集合（去重，保证持久化稳定）。
+  Future<void> updateListPackages(Set<String> packages) async {
+    await _update(_config.copyWith(listPackageNames: {...packages}));
+  }
+
+  /// 更新时段限制配置。
+  Future<void> updateSchedule(ScheduleConfig schedule) async {
+    await _update(_config.copyWith(schedule: schedule));
   }
 
   /// 开启/关闭消抖功能。

@@ -5,6 +5,7 @@ import 'package:is_it_enough/features/onboarding/onboarding_page.dart';
 import 'package:is_it_enough/features/statistics/statistics_page.dart';
 import 'package:is_it_enough/features/settings/presentation/settings_page.dart';
 import 'package:is_it_enough/features/logs/log_viewer_page.dart';
+import 'package:is_it_enough/features/reminder/app_launch_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 应用根组件。
@@ -22,6 +23,8 @@ class _IsItEnoughAppState extends State<IsItEnoughApp> {
   @override
   void initState() {
     super.initState();
+    // 界面引擎就绪：接管原生“现在放下 → 拉起 App 并打开呼吸页”的回传。
+    AppLaunchChannel.init();
     _checkFirstRun();
   }
 

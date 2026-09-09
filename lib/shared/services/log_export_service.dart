@@ -121,8 +121,13 @@ class LogExportService {
       buf.writeln('连续使用阈值: ${settings.thresholdMinutes} 分钟');
       buf.writeln('智能消抖: ${settings.debounceEnabled}');
       buf.writeln('调试模式: ${settings.debugMode}');
-      buf.writeln('黑名单包数: ${settings.blacklistedPackageNames.length}');
-      buf.writeln('黑名单: ${settings.blacklistedPackageNames.join(", ")}');
+      buf.writeln('名单模式: ${settings.monitorListMode.label}');
+      buf.writeln('名单包数: ${settings.listPackageNames.length}');
+      buf.writeln('名单: ${settings.listPackageNames.join(", ")}');
+      buf.writeln(
+        '时段限制: ${settings.schedule.enabled ? settings.schedule.label : "未开启"}'
+        '${settings.schedule.enabled ? " 时段外=${settings.schedule.outsideMode.label}" : ""}',
+      );
     } else {
       buf.writeln('（未传入设置服务）');
     }

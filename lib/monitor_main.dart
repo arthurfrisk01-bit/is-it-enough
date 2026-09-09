@@ -53,7 +53,7 @@ Future<void> monitorMain() async {
     settingsService: settingsService,
     onTrigger: (event) {
       logger.info('触发提醒: $event', tag: 'Monitor');
-      statsService.recordTrigger();
+      statsService.recordTrigger(packageName: event.packageName);
       _headlessController?.handleTrigger(event);
     },
   );
