@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  notification_icon 只被 Dart 侧按字符串名引用（flutter_local_notifications），
+  Android 侧没有任何 XML/manifest 引用它，AGP 9 的 release 资源收缩会把它当"未使用"裁掉，
+  导致运行时 invalid_icon（通知兜底通道静默失败）。用 keep.xml 显式保活。
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/notification_icon" />
