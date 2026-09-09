@@ -54,6 +54,10 @@ class UpdateService {
       'https://api.github.com/repos/$repoOwner/$repoName/releases/latest';
 
   static Future<UpdateCheckResult> check({required String currentVersion}) async {
+    // 读不到本机版本号时不能瞎比：'—' 会被当成 0.0.0，误报“有新版本”。
+    if (!RegExp(r'\d').hasMatch(currentVersion)) {
+      return const UpdateCheckResult(error: '无法读取当前版本号，请稍后重试。');
+    }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     try {
       final request = await client.getUrl(Uri.parse(_latestApiUrl));

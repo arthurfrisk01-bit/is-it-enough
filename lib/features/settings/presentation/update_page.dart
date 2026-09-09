@@ -31,6 +31,12 @@ class _UpdatePageState extends State<UpdatePage> {
   }
 
   Future<void> _check() async {
+    // 版本号是异步从原生取的，用户手快时可能还没回来——先补一次，
+    // 否则会拿 '—' 去比对，误报“有新版本”。
+    if (_currentVersion == '—') {
+      await _loadCurrentVersion();
+      if (!mounted) return;
+    }
     setState(() {
       _checking = true;
       _result = null;
