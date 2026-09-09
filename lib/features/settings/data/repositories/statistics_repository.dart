@@ -58,6 +58,13 @@ class StatisticsRepository {
     await _prefs.setString(_keyTriggerByApp, jsonEncode(counts));
   }
 
+  /// 上次写入按应用计数的日期键；与 [todayKey] 不一致说明已跨天。
+  String? storedTriggerCountsDateKey() =>
+      _prefs.getString(_keyTriggerByAppDate);
+
+  /// 今天的日期键，供上层判断跨天。
+  static String todayKey() => _todayKey();
+
   static String _todayKey() {
     final now = DateTime.now();
     final month = now.month.toString().padLeft(2, '0');

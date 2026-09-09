@@ -90,6 +90,12 @@ class StatisticsService extends ChangeNotifier {
       lastTriggerTime: DateTime.now(),
     );
     if (packageName != null && packageName.isNotEmpty) {
+      // 服务可能连续跑好几天，跨过零点时先把昨天的计数清零，
+      // 保证界面上的“今日”名副其实。
+      if (_repository.storedTriggerCountsDateKey() !=
+          StatisticsRepository.todayKey()) {
+        _todayTriggerCounts = <String, int>{};
+      }
       _todayTriggerCounts = <String, int>{
         ..._todayTriggerCounts,
         packageName: (_todayTriggerCounts[packageName] ?? 0) + 1,
