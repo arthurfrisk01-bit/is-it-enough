@@ -59,6 +59,9 @@ class ReminderController {
   /// Overlay 渲染完成回执；只有它被 complete 才认为悬浮窗真的出现了。
   Completer<void>? _overlayAck;
 
+  /// 本轮提醒向 Overlay 推送数据的次数（含 overlayReady 触发的补发）。
+  int _overlayPushCount = 0;
+
   /// 监听器触发时调用。
   Future<void> handleTrigger(MonitorTriggerEvent event) async {
     // 注意：不再使用 _showing 标志阻止重复提醒。
@@ -121,16 +124,13 @@ class ReminderController {
       appLabel,
     );
 
-    // 2) 悬浮窗增强：整段带 4s 总超时，任何一步卡住都不会拖死提醒链路。
+    // 2) 悬浮窗增强。_tryOverlay 内部自带超时与收尾（失败必定关窗），这里不再
+    //    套外层总超时 —— 外层超时会让内层来不及关窗，留下空白窗口挡住屏幕。
     var overlayOk = false;
     final granted = await OverlayWindowService.isPermissionGranted();
     _logger.info('悬浮窗权限: $granted', tag: 'Reminder');
     if (granted) {
-      overlayOk = await _tryOverlay(mode, packageName, appLabel, snoozeMinutes)
-          .timeout(const Duration(seconds: 4), onTimeout: () {
-        _logger.warning('Overlay 流程总超时（4s），放弃悬浮窗', tag: 'Reminder');
-        return false;
-      });
+      overlayOk = await _tryOverlay(mode, packageName, appLabel, snoozeMinutes);
     }
 
     if (overlayOk) {
@@ -158,9 +158,11 @@ class ReminderController {
 
   /// 尝试展示悬浮窗并确认它真的渲染出来了，返回是否成功。
   ///
-  /// 三层确认：show() 拉起服务 → 送数据并等 Overlay 引擎回执 → 服务确实在跑。
-  /// `isActive()` 只反映 OverlayService 的静态标志位，服务在跑 ≠ 窗口画出来了，
-  /// 必须叠加渲染回执才敢认定成功。
+  /// 关键教训（2026-09-09 实机）：
+  /// - Overlay 引擎可能比 show() 晚很多才就绪，`shareData` 会超时；数据只能靠
+  ///   Overlay 隔离区主动发 `overlayReady` 后补发，不能赌“推一次就中”；
+  /// - 一旦没确认渲染成功，必须立刻关窗。否则窗口以“透明空窗”的形式压在应用
+  ///   上，用户能看到界面但整屏点不动。
   Future<bool> _tryOverlay(
     ReminderMode mode,
     String packageName,
@@ -169,42 +171,57 @@ class ReminderController {
   ) async {
     try {
       await OverlayWindowService.show();
-      _overlayAck = Completer<void>();
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-
-      Future<void> pushData() => OverlayWindowService.sendReminderData(
-            mode: mode.storageKey,
-            packageName: packageName,
-            appName: appLabel,
-            snoozeMinutes: snoozeMinutes,
-          );
-      await pushData();
-
-      var acked = false;
-      try {
-        await _overlayAck!.future.timeout(const Duration(milliseconds: 1200));
-        acked = true;
-      } on TimeoutException {
-        acked = false;
-      }
-
-      if (!acked) {
-        _logger.warning('Overlay 未回执渲染完成，补送一次提醒数据', tag: 'Reminder');
-        await pushData();
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        acked = _overlayAck!.isCompleted;
-      }
-
-      final serviceRunning = await OverlayWindowService.isActive();
-      _logger.info(
-        'Overlay 复核：渲染回执=$acked 服务运行中=$serviceRunning → 视为已显示=${acked && serviceRunning}',
-        tag: 'Reminder',
-      );
-      return acked && serviceRunning;
     } catch (e) {
       _logger.error('Overlay 展示异常: $e', tag: 'Reminder');
+      // show() 超时/报错时服务可能已经拉起 —— 清理掉，别留下空窗。
+      await OverlayWindowService.hide();
       return false;
     }
+
+    // 暂存数据：Overlay 隔离区起来后会喊 overlayReady，我们据此补发。
+    OverlayWindowService.pendingPayload = {
+      'mode': mode.storageKey,
+      'packageName': packageName,
+      'appName': appLabel,
+      'snoozeMinutes': snoozeMinutes,
+    };
+    _overlayAck = Completer<void>();
+    _overlayPushCount = 0;
+
+    await _pushOverlayPayload();
+
+    var acked = false;
+    try {
+      await _overlayAck!.future.timeout(const Duration(milliseconds: 3500));
+      acked = true;
+    } on TimeoutException {
+      acked = false;
+    }
+
+    final serviceRunning = await OverlayWindowService.isActive();
+    _logger.info(
+      'Overlay 复核：渲染回执=$acked 服务运行中=$serviceRunning 推送次数=$_overlayPushCount',
+      tag: 'Reminder',
+    );
+
+    if (!acked) {
+      // 没渲染出来就立刻关窗：否则会留下一个空白全屏窗口挡住整个屏幕。
+      _logger.warning('Overlay 未确认渲染，关闭悬浮窗避免空窗挡屏', tag: 'Reminder');
+      OverlayWindowService.pendingPayload = null;
+      await OverlayWindowService.hide();
+      return false;
+    }
+
+    OverlayWindowService.pendingPayload = null;
+    return serviceRunning;
+  }
+
+  /// 把暂存的提醒数据推给 Overlay 隔离区（最多 3 次，避免反复超时刷屏）。
+  Future<void> _pushOverlayPayload() async {
+    final payload = OverlayWindowService.pendingPayload;
+    if (payload == null || _overlayPushCount >= 3) return;
+    _overlayPushCount += 1;
+    await OverlayWindowService.sendData(payload);
   }
 
   /// 安全发送系统通知，捕获所有异常并返回是否成功。
@@ -233,10 +250,20 @@ class ReminderController {
   /// Overlay 子窗口通过 shareData 把用户操作回传主 App。
   Future<void> onOverlayAction(Map<dynamic, dynamic> data) async {
     final action = data['action'] as String?;
-    _logger.info('Overlay action: $action', tag: 'Reminder');
     switch (action) {
+      case 'overlayReady':
+        // Overlay 隔离区开始渲染了：把暂存的提醒数据补发过去。
+        // 这是引擎冷启动慢时数据唯一可靠的送达机会。
+        if (OverlayWindowService.pendingPayload != null) {
+          _logger.info(
+            'Overlay 引擎就绪信号，补发提醒数据（第 ${_overlayPushCount + 1} 次）',
+            tag: 'Reminder',
+          );
+          await _pushOverlayPayload();
+        }
+        break;
       case 'overlayShown':
-        // Overlay 内容真正渲染完成的回执：只有收到它才允许把系统通知降级为静默。
+        _logger.info('Overlay 渲染回执已收到', tag: 'Reminder');
         if (_overlayAck != null && !_overlayAck!.isCompleted) {
           _overlayAck!.complete();
         }
@@ -248,6 +275,7 @@ class ReminderController {
         await putDown();
         break;
       default:
+        _logger.debug('Overlay action: $action', tag: 'Reminder');
         break;
     }
   }

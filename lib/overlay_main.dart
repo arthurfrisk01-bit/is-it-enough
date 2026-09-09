@@ -10,8 +10,10 @@ import 'package:is_it_enough/shared/services/logger_service.dart';
 Future<void> overlayMain() async {
   WidgetsFlutterBinding.ensureInitialized();
   LoggerService.isolateName = 'Overlay';
+  // Overlay 引擎由插件自己创建，没有注册我们的原生日志桥，写盘必然失败；
+  // 关掉落盘，关键事件由 OverlayHost 用 shareData 回传主 App 落盘。
+  LoggerService.persistToNative = false;
   LoggerService.installErrorHandlers();
-  LoggerService().info('Overlay 引擎启动', tag: 'Overlay');
   runApp(const OverlayHostApp());
 }
 

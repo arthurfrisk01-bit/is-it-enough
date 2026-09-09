@@ -99,6 +99,13 @@ class LoggerService extends ChangeNotifier {
   /// 当前引擎标识，启动时由各入口设置（UI / Monitor / Overlay）。
   static String isolateName = 'UI';
 
+  /// 是否把日志写进原生文件。
+  ///
+  /// Overlay 隔离区的引擎由 flutter_overlay_window 插件自己创建，没有注册
+  /// 我们的原生日志桥，写盘必然失败；由 overlay_main 关掉，关键日志改走
+  /// shareData 回传主 App 落盘。
+  static bool persistToNative = true;
+
   bool _persistEnabled = !kIsWeb && Platform.isAndroid;
 
   /// 调试模式：true 时所有级别日志都输出到 console。
@@ -155,7 +162,7 @@ class LoggerService extends ChangeNotifier {
 
   /// 实时写入原生日志文件（失败静默，绝不递归记日志）。
   void _persist(LogEntry entry) {
-    if (!_persistEnabled) return;
+    if (!persistToNative || !_persistEnabled) return;
     try {
       unawaited(
         _logChannel

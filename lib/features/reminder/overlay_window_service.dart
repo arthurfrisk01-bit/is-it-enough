@@ -15,6 +15,13 @@ class OverlayWindowService {
 
   static final _logger = LoggerService();
 
+  /// 主 App 侧暂存的待发送提醒数据。
+  ///
+  /// Overlay 引擎可能比 show() 晚好几秒才就绪，那时 shareData 早已超时。
+  /// Overlay 隔离区启动/开始渲染后会主动发 `overlayReady`，主 App 收到后用
+  /// 这份数据补发，不再依赖“推一次就中”（2026-09-09 实机教训）。
+  static Map<String, dynamic>? pendingPayload;
+
   /// 是否已授予悬浮窗权限。
   static Future<bool> isPermissionGranted() async {
     try {
@@ -50,6 +57,12 @@ class OverlayWindowService {
   ///
   /// Overlay 会伴随一条前台服务通知，默认文案为插件自带的英文
   /// “overlay activated”，这里改成中文。
+  ///
+  /// 关键：窗口用 [OverlayFlag.clickThrough] 创建（FLAG_NOT_TOUCHABLE）。
+  /// Overlay 引擎冷启动期间窗口已经存在，但 Dart 侧还没画出任何东西；如果窗口
+  /// 可触摸，它就会变成一个“透明/空白却吃掉全部点击”的罩子 —— 2026-09-09
+  /// 实机现象正是如此：弹出透明空窗，返回应用后整屏点不动。
+  /// 等 Overlay 隔离区真的渲染出内容后，由它调用 [makeInteractive] 切回可点击。
   static Future<void> show({
     String? overlayTitle,
     String? overlayContent,
@@ -58,7 +71,8 @@ class OverlayWindowService {
       await FlutterOverlayWindow.showOverlay(
         overlayTitle: overlayTitle ?? '够了吗：提醒服务运行中',
         overlayContent: overlayContent ?? '点击返回够了吗',
-      );
+        flag: OverlayFlag.clickThrough,
+      ).timeout(const Duration(seconds: 2));
     } catch (e) {
       _logger.error('Overlay show 失败: $e', tag: 'Overlay');
       rethrow;
@@ -106,6 +120,24 @@ class OverlayWindowService {
       _logger.warning('Overlay shareData 超时（对端未应答，引擎可能未启动）', tag: 'Overlay');
     } catch (e) {
       _logger.error('Overlay shareData 失败: $e', tag: 'Overlay');
+    }
+  }
+
+  /// Overlay 隔离区渲染完成后调用：把窗口从“点击穿透”切回可点击。
+  ///
+  /// 只能由 Overlay 隔离区调用 —— `updateFlag` 走的是 OverlayService 上的
+  /// MethodChannel，主 App 引擎上没有这个 handler。
+  ///
+  /// 返回是否切换成功。切换失败时必须**不要**回执渲染完成，让主 App 到点
+  /// 关掉这个窗口 —— 否则会留下一个“看得见但点不动”的全屏提醒。
+  static Future<bool> makeInteractive() async {
+    try {
+      final ok = await FlutterOverlayWindow.updateFlag(OverlayFlag.defaultFlag)
+          .timeout(const Duration(seconds: 1));
+      return ok ?? false;
+    } catch (e) {
+      _logger.warning('Overlay 切换可点击失败: $e', tag: 'Overlay');
+      return false;
     }
   }
 }

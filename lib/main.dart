@@ -94,10 +94,16 @@ void _startAndroidMonitor(SettingsService settingsService, StatisticsService sta
     statistics: statsService,
   );
 
-  // 接收 Overlay 中用户点击“再刷/现在放下”的回传动作。
+  // 接收 Overlay 隔离区的回传：用户点击“再刷/现在放下”、渲染回执、
+  // 以及 Overlay 侧的关键日志（它没有原生日志桥，日志靠这里落盘）。
   try {
     FlutterOverlayWindow.overlayListener.listen((data) {
-      if (data is Map) controller.onOverlayAction(data);
+      if (data is! Map) return;
+      if (data['action'] == 'log') {
+        LoggerService().info('${data['msg']}', tag: 'Overlay');
+        return;
+      }
+      controller.onOverlayAction(data);
     });
   } catch (e) {
     debugPrint('[够了吗] Overlay listener 注册失败: $e');

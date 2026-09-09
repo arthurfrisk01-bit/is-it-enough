@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import io.flutter.embedding.engine.FlutterEngineCache
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -184,6 +185,22 @@ object DiagnosticsCollector {
         sb.appendLine("  界面存活(MainActivity): ${MonitorForegroundService.uiAlive}")
         sb.appendLine("  保活服务运行中: ${isMonitorServiceRunning(am)}")
         sb.appendLine("  headless 引擎存活: ${MonitorForegroundService.isHeadlessEngineAlive()}")
+
+        // Overlay 引擎：flutter_overlay_window 在 MainActivity 挂载时创建并缓存
+        // （tag=myCachedEngine）。executingDart=false 说明 Overlay 隔离区压根没跑起来，
+        // 那 shareData 必然超时、窗口只会是空白 —— 2026-09-09 排查"透明空窗"用的关键字段。
+        try {
+            val overlayEngine = FlutterEngineCache.getInstance().get("myCachedEngine")
+            if (overlayEngine == null) {
+                sb.appendLine("  Overlay 引擎: 未创建（插件未挂载/未缓存）")
+            } else {
+                sb.appendLine(
+                    "  Overlay 引擎: 已缓存 executingDart=${overlayEngine.dartExecutor.isExecutingDart}"
+                )
+            }
+        } catch (t: Throwable) {
+            sb.appendLine("  Overlay 引擎: 读取失败 ${t.message}")
+        }
 
         try {
             val state = ActivityManager.RunningAppProcessInfo()

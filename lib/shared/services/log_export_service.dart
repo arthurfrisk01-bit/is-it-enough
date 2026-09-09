@@ -201,7 +201,10 @@ class LogExportService {
     check('前台查询异常', '前台应用查询抛异常（详见下方日志）');
     check('Overlay 复核：渲染回执=false', '悬浮窗未回执渲染完成（服务在跑但窗口没画出来）');
     check('Overlay shareData 超时', '悬浮窗引擎没应答（可能未启动）→ 通知已优先发出，不再被卡住');
-    check('Overlay 流程总超时', '悬浮窗流程 4s 未完成，已放弃悬浮窗改走通知');
+    check('Overlay 未确认渲染，关闭悬浮窗', '悬浮窗没渲染出来，已自动关窗 —— 旧版本会留下透明空窗挡住整个屏幕');
+    check('Overlay 引擎: 未创建', 'Overlay 隔离区引擎没创建 —— 悬浮窗永远起不来（只剩通知通道）');
+    check('Overlay 引擎: 已缓存 executingDart=false', 'Overlay 引擎对象在但 Dart 隔离区没跑起来 —— shareData 必然超时、窗口只会空白');
+    check('Overlay 渲染回执已收到', '正常：悬浮窗内容已真正渲染出来');
     check('通知已提交但系统未保留', '通知被系统丢弃 —— 检查通知权限与该通道是否被关闭');
     check('Overlay 展示异常', '悬浮窗展示抛异常（详见日志）');
     return hints;
