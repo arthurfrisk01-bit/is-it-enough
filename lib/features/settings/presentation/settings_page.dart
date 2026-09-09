@@ -297,11 +297,11 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
             ),
-            if (mode == MonitorListMode.whitelist && list.isEmpty)
+            if (mode == MonitorListMode.blacklist && list.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  '白名单为空：当前不会监控任何应用，请先添加应用。',
+                  '黑名单为空：当前不会监控任何应用，请先添加应用。',
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.5,

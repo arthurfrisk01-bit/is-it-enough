@@ -39,7 +39,7 @@ class AppConfig {
   final MonitorListMode monitorListMode;
 
   /// 名单包名集合，语义由 [monitorListMode] 决定：
-  /// 黑名单=这些应用不监控；白名单=只监控这些应用。
+  /// 黑名单=只监控这些应用；白名单=这些应用不监控。
   final Set<String> listPackageNames;
 
   /// 消抖开关：短暂切换其他应用30s内回到原应用继续计算提醒时间。

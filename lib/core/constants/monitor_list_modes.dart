@@ -7,14 +7,14 @@ library;
 /// 监控名单模式。
 ///
 /// - [off]：不启用名单（默认），监控所有应用；
-/// - [blacklist]：名单内的应用不监控；
-/// - [whitelist]：只监控名单内的应用。
+/// - [blacklist]：只监控名单内的应用（名单外不监控）；
+/// - [whitelist]：名单内的应用不监控（其余照常监控）。
 ///
 /// 黑名单与白名单互斥，同一时刻只有一种模式生效，也可以都不开启。
 enum MonitorListMode {
   off('off', '不启用', '监控所有应用（默认）'),
-  blacklist('blacklist', '黑名单', '名单里的应用不监控'),
-  whitelist('whitelist', '白名单', '只监控名单里的应用');
+  blacklist('blacklist', '黑名单', '只监控名单里的应用'),
+  whitelist('whitelist', '白名单', '名单里的应用不监控');
 
   const MonitorListMode(this.storageKey, this.label, this.description);
 
@@ -30,6 +30,22 @@ enum MonitorListMode {
   }
 
   bool get isEnabled => this != MonitorListMode.off;
+
+  /// 该包名在当前模式下是否应跳过监控。
+  ///
+  /// - [off]：不跳过任何应用；
+  /// - [blacklist]：只监控名单内的应用 → 名单外跳过；
+  /// - [whitelist]：名单内的应用不监控 → 名单内跳过。
+  bool shouldIgnorePackage(String packageName, Set<String> list) {
+    switch (this) {
+      case MonitorListMode.off:
+        return false;
+      case MonitorListMode.blacklist:
+        return !list.contains(packageName);
+      case MonitorListMode.whitelist:
+        return list.contains(packageName);
+    }
+  }
 }
 
 /// 时段外的提醒强度。

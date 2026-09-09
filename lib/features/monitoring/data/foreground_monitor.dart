@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:is_it_enough/core/constants/app_constants.dart';
-import 'package:is_it_enough/core/constants/monitor_list_modes.dart';
 import 'package:is_it_enough/features/monitoring/data/monitor_service_channel.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
@@ -344,19 +343,14 @@ class ForegroundMonitor {
   /// 是否跳过该包名的监控。
   ///
   /// - 名单模式不启用：只跳过系统/桌面等固定忽略包；
-  /// - 黑名单：名单内应用不监控；
-  /// - 白名单：只监控名单内应用（名单为空则什么都不监控，设置页会给出提示）。
+  /// - 黑名单：只监控名单内应用（名单为空则什么都不监控，设置页会给出提示）；
+  /// - 白名单：名单内应用不监控。
   bool _shouldIgnore(String packageName) {
     if (AppConstants.isIgnoredPackage(packageName)) return true;
-    final list = _settings.listPackageNames;
-    switch (_settings.monitorListMode) {
-      case MonitorListMode.off:
-        return false;
-      case MonitorListMode.blacklist:
-        return list.contains(packageName);
-      case MonitorListMode.whitelist:
-        return !list.contains(packageName);
-    }
+    return _settings.monitorListMode.shouldIgnorePackage(
+      packageName,
+      _settings.listPackageNames,
+    );
   }
 
   /// 把当前活跃会话“停靠”起来（类似切走应用），等待消抖窗口内恢复。

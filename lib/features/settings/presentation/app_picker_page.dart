@@ -67,7 +67,7 @@ class _AppPickerPageState extends State<AppPickerPage> {
     final visible = _visibleApps;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isWhitelist ? '选择要监控的应用' : '选择不监控的应用'),
+        title: Text(_isWhitelist ? '选择不监控的应用' : '选择要监控的应用'),
         actions: [
           TextButton(
             onPressed: () => setState(() => _selected = <String>{}),
