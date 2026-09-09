@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 
@@ -91,9 +93,17 @@ class OverlayWindowService {
   }
 
   /// 通用发送数据到 Overlay / 从 Overlay 返回主 App。
+  ///
+  /// 注意：`shareData` 底层是 BasicMessageChannel.send，必须等对端（Overlay 引擎的
+  /// Dart 侧）回执才 complete。如果 Overlay 引擎没起来或没注册监听，这个 Future
+  /// 永远不会结束 —— 2026-09-09 实测就是这样把整条提醒链路卡死的（通知都发不出去）。
+  /// 因此这里强制加超时，绝不阻塞调用方。
   static Future<void> sendData(Map<String, dynamic> data) async {
     try {
-      await FlutterOverlayWindow.shareData(data);
+      await FlutterOverlayWindow.shareData(data)
+          .timeout(const Duration(milliseconds: 800));
+    } on TimeoutException {
+      _logger.warning('Overlay shareData 超时（对端未应答，引擎可能未启动）', tag: 'Overlay');
     } catch (e) {
       _logger.error('Overlay shareData 失败: $e', tag: 'Overlay');
     }
