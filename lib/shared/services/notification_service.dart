@@ -53,14 +53,23 @@ class NotificationReminderService {
       await _plugin.initialize(settings);
 
       // Android 13+ 需要运行时通知权限；此处只发起一次系统弹窗，不阻塞启动。
+      final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
       if (requestPermission) {
-        final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-        await androidImpl?.requestNotificationsPermission();
+        final granted = await androidImpl?.requestNotificationsPermission();
+        LoggerService().debug('运行时通知权限请求结果: $granted', tag: 'Notification');
       }
 
       _initialized = true;
-      LoggerService().info('通知服务已初始化', tag: 'Notification');
+      var enabledText = '未知';
+      try {
+        final enabled = await androidImpl?.areNotificationsEnabled();
+        enabledText = enabled == null ? '未知' : '$enabled';
+      } catch (e) {
+        enabledText = '探测失败($e)';
+      }
+      LoggerService()
+          .info('通知服务已初始化（系统通知总开关: $enabledText）', tag: 'Notification');
     } catch (e) {
       LoggerService().error('通知服务初始化失败: $e', tag: 'Notification');
     }
@@ -111,6 +120,15 @@ class NotificationReminderService {
       final title = strong ? '够了吗？' : '提醒';
       final body = '你在 $appLabel 上已经使用了 $continuousMinutes 分钟';
 
+      final channelId = silent
+          ? _silentChannelId
+          : (strong ? _strongChannelId : _weakChannelId);
+      logger.info(
+        '发送系统通知：通道=$channelId 重要度=${silent ? "low" : "high"} '
+        '全屏Intent=$fullScreenIntent 应用=$appLabel 时长=$continuousMinutes分钟',
+        tag: 'Notification',
+      );
+
       final details = AndroidNotificationDetails(
         silent
             ? _silentChannelId
@@ -152,10 +170,33 @@ class NotificationReminderService {
         NotificationDetails(android: details),
         payload: 'reminder',
       );
+
+      // 回读系统活跃通知，确认通知真的被系统接受（而不是被权限/通道静默丢弃）。
+      var posted = false;
+      var activeCount = -1;
+      try {
+        final active = await _plugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.getActiveNotifications();
+        activeCount = active?.length ?? -1;
+        posted = active?.any((n) => n.id == _reminderNotificationId) ?? false;
+      } catch (e) {
+        logger.debug('回读活跃通知失败: $e', tag: 'Notification');
+      }
+
       logger.info(
-        '系统通知已发送（${strong ? "强" : "弱"}${silent ? "·静默" : ""}）- $appLabel',
+        '系统通知已提交（${strong ? "强" : "弱"}${silent ? "·静默" : ""}）'
+        '- $appLabel，系统已接受=$posted，活跃通知数=$activeCount',
         tag: 'Notification',
       );
+      if (activeCount >= 0 && !posted) {
+        logger.fatal(
+          '通知已提交但系统未保留 —— 通常是通知权限被拒或该通知通道被设为“关闭”，'
+          '请到 系统设置→应用→够了吗→通知 检查',
+          tag: 'Notification',
+        );
+      }
       return true;
     } catch (e) {
       logger.error('发送系统通知失败: $e', tag: 'Notification');

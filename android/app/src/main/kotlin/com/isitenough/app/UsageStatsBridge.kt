@@ -114,6 +114,7 @@ class UsageStatsBridge(
     private fun getForegroundPackage(result: Result) {
         try {
             if (!isUsageAccessGranted()) {
+                LogStore.append(context, "前台查询失败：未授予“使用情况访问权限”", "Native")
                 result.success(null)
                 return
             }
@@ -146,12 +147,14 @@ class UsageStatsBridge(
 
             result.success(foregroundPackage)
         } catch (e: SecurityException) {
+            LogStore.append(context, "前台查询 SecurityException: ${e.message}", "Native")
             result.error(
                 "USAGE_ACCESS_REQUIRED",
                 "缺少使用情况访问权限：${e.message}",
                 e.stackTraceToString(),
             )
         } catch (e: Exception) {
+            LogStore.append(context, "前台查询异常: ${e.javaClass.simpleName}: ${e.message}", "Native")
             result.error("GET_FOREGROUND_FAILED", e.message, e.stackTraceToString())
         }
     }

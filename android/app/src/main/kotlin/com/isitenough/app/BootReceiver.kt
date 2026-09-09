@@ -37,10 +37,12 @@ class BootReceiver : BroadcastReceiver() {
 
         if (!enabled) {
             Log.i(TAG, "后台监控已关闭，跳过后台服务自启")
+            LogStore.append(context, "开机/更新广播：监控开关为关，跳过自启", "Native")
             return
         }
 
         Log.i(TAG, "开机/更新完成，启动后台监控服务（action=$action）")
+        LogStore.append(context, "开机/更新广播触发自启（action=$action）", "Native")
         MonitorForegroundService.start(context)
     }
 }

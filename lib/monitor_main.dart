@@ -29,6 +29,8 @@ ReminderController? _headlessController;
 @pragma('vm:entry-point')
 Future<void> monitorMain() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LoggerService.isolateName = 'Monitor';
+  LoggerService.installErrorHandlers();
 
   if (kIsWeb || !Platform.isAndroid) return;
 

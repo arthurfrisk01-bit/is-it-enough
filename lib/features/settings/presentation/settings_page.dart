@@ -3,6 +3,7 @@ import 'package:is_it_enough/core/constants/app_constants.dart';
 import 'package:is_it_enough/core/constants/reminder_modes.dart';
 import 'package:is_it_enough/core/navigation/app_navigator.dart';
 import 'package:is_it_enough/features/breathing/breathing_page.dart';
+import 'package:is_it_enough/features/logs/log_export_dialog.dart';
 import 'package:is_it_enough/features/logs/log_viewer_page.dart';
 import 'package:is_it_enough/features/reminder/overlay_window_service.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
@@ -326,6 +327,14 @@ class SettingsPage extends StatelessWidget {
             subtitle: const Text('检查所有权限状态和通知通道创建情况'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => _runPermissionDiagnosis(context),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.save_alt_outlined),
+            title: const Text('导出全量日志'),
+            subtitle: const Text('日志+系统状态保存到下载目录，用于排查不弹通知'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => exportAndShowLogs(context),
           ),
         ],
       ),

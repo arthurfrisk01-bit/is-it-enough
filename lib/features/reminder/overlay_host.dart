@@ -26,6 +26,9 @@ class _OverlayHostState extends State<OverlayHost> {
   String _appName = '';
   int _snoozeMinutes = 5;
 
+  /// 只回执一次“内容已渲染”，避免重复刷屏。
+  bool _ackSent = false;
+
   @override
   void initState() {
     super.initState();
@@ -38,7 +41,24 @@ class _OverlayHostState extends State<OverlayHost> {
           _appName = data['appName'] as String? ?? _appName;
           _snoozeMinutes = data['snoozeMinutes'] as int? ?? _snoozeMinutes;
         });
+        _ackShown();
       }
+    });
+  }
+
+  /// 回执给主引擎：悬浮窗内容已经真正渲染出来。
+  ///
+  /// 主引擎只有在收到该回执后才把系统通知降级为静默（不响铃不弹横幅）；
+  /// 否则“OverlayService.isRunning=true”这种假成功会让提醒彻底无声无息。
+  void _ackShown() {
+    if (_ackSent || _packageName.isEmpty) return;
+    _ackSent = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      OverlayWindowService.sendData({
+        'action': 'overlayShown',
+        'mode': _mode,
+        'packageName': _packageName,
+      });
     });
   }
 

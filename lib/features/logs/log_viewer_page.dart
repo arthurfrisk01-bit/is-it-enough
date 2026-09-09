@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:is_it_enough/features/logs/log_export_dialog.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:provider/provider.dart';
 
@@ -13,6 +14,11 @@ class LogViewerPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('应用日志'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            tooltip: '导出全量日志',
+            onPressed: () => exportAndShowLogs(context),
+          ),
           IconButton(
             icon: const Icon(Icons.copy),
             tooltip: '复制 Warning 以上',
@@ -66,10 +72,11 @@ class LogViewerPage extends StatelessWidget {
     );
   }
 
-  void _clearLogs(BuildContext context) {
-    context.read<LoggerService>().clear();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('日志已清空')),
+  Future<void> _clearLogs(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await context.read<LoggerService>().clear();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('日志已清空（含落盘文件）')),
     );
   }
 }
@@ -131,6 +138,15 @@ class _LogEntryTile extends StatelessWidget {
                     fontSize: 11,
                     fontFamily: 'monospace',
                     color: Colors.white54,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  entry.isolate,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: Colors.white38,
                   ),
                 ),
                 if (entry.tag != null) ...[

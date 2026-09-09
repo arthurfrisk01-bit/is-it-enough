@@ -27,6 +27,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LoggerService.isolateName = 'UI';
+  LoggerService.installErrorHandlers();
 
   // 初始化本地配置。
   final prefs = await SharedPreferences.getInstance();

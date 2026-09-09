@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:is_it_enough/features/reminder/overlay_host.dart';
+import 'package:is_it_enough/shared/services/logger_service.dart';
 
 /// flutter_overlay_window 的独立 Overlay 入口。
 ///
@@ -8,6 +9,9 @@ import 'package:is_it_enough/features/reminder/overlay_host.dart';
 @pragma('vm:entry-point')
 Future<void> overlayMain() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LoggerService.isolateName = 'Overlay';
+  LoggerService.installErrorHandlers();
+  LoggerService().info('Overlay 引擎启动', tag: 'Overlay');
   runApp(const OverlayHostApp());
 }
 

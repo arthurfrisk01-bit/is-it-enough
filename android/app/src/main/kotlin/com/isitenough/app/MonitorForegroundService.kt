@@ -47,6 +47,9 @@ class MonitorForegroundService : Service() {
         @Volatile
         private var headlessEngine: FlutterEngine? = null
 
+        /** headless 引擎是否存活（诊断用）。 */
+        fun isHeadlessEngineAlive(): Boolean = headlessEngine != null
+
         /** 启动保活服务（幂等）。 */
         fun start(context: Context) {
             val intent = Intent(context, MonitorForegroundService::class.java).setAction(ACTION_START)
@@ -56,8 +59,10 @@ class MonitorForegroundService : Service() {
                 } else {
                     context.startService(intent)
                 }
+                LogStore.append(context, "请求启动后台监控服务", "Native")
             } catch (t: Throwable) {
                 Log.e(TAG, "启动后台监控服务失败", t)
+                LogStore.append(context, "启动后台监控服务失败: ${t.message}", "Native")
             }
         }
 
@@ -72,9 +77,10 @@ class MonitorForegroundService : Service() {
         }
 
         /** App 界面创建时调用：销毁无界面引擎，由界面引擎接管监控。 */
-        fun releaseHeadlessEngine() {
+        fun releaseHeadlessEngine(context: Context? = null) {
             headlessEngine?.let { engine ->
                 Log.i(TAG, "界面已创建，销毁 headless FlutterEngine")
+                context?.let { LogStore.append(it, "销毁 headless 引擎（界面接管）", "Native") }
                 try {
                     engine.destroy()
                 } catch (t: Throwable) {
@@ -91,13 +97,15 @@ class MonitorForegroundService : Service() {
         super.onCreate()
         createChannel()
         promoteToForeground()
+        LogStore.append(this, "保活服务 onCreate（前台通知已提升）", "Native")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                releaseHeadlessEngine()
+                releaseHeadlessEngine(this)
                 stopSelf()
+                LogStore.append(this, "收到停止指令，保活服务退出", "Native")
                 return START_NOT_STICKY
             }
             else -> {
@@ -112,7 +120,8 @@ class MonitorForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        releaseHeadlessEngine()
+        releaseHeadlessEngine(this)
+        LogStore.append(this, "保活服务 onDestroy", "Native")
         super.onDestroy()
     }
 
@@ -131,6 +140,7 @@ class MonitorForegroundService : Service() {
             }
         } catch (t: Throwable) {
             Log.e(TAG, "startForeground 失败", t)
+            LogStore.append(this, "startForeground 失败: ${t.message}", "Native")
         }
     }
 
@@ -194,13 +204,20 @@ class MonitorForegroundService : Service() {
             loader.ensureInitializationComplete(applicationContext, null)
 
             val engine = FlutterEngine(applicationContext)
+            // 必须为 headless 引擎注册原生通道：
+            // - UsageStatsBridge：否则 Dart 侧 getForegroundPackage 抛
+            //   MissingPluginException，后台监控静默失效（不弹提醒）；
+            // - LogBridge：让后台引擎的日志也落进同一份日志文件。
+            AppBridges.registerAll(engine, applicationContext)
             engine.dartExecutor.executeDartEntrypoint(
                 DartExecutor.DartEntrypoint(loader.findAppBundlePath(), DART_ENTRYPOINT)
             )
             headlessEngine = engine
             Log.i(TAG, "headless FlutterEngine 已启动（entrypoint=$DART_ENTRYPOINT）")
+            LogStore.append(this, "headless 引擎已启动（entrypoint=$DART_ENTRYPOINT）", "Native")
         } catch (t: Throwable) {
             Log.e(TAG, "headless FlutterEngine 启动失败，监控暂时只能依赖界面进程", t)
+            LogStore.append(this, "headless 引擎启动失败: ${t.message}", "Native")
             headlessEngine = null
         }
     }

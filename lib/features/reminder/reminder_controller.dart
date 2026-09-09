@@ -56,6 +56,9 @@ class ReminderController {
   /// 当前是否正在展示提醒（用于统计，未用于拦截）。
   bool get isShowing => _activePackage != null;
 
+  /// Overlay 渲染完成回执；只有它被 complete 才认为悬浮窗真的出现了。
+  Completer<void>? _overlayAck;
+
   /// 监听器触发时调用。
   Future<void> handleTrigger(MonitorTriggerEvent event) async {
     // 注意：不再使用 _showing 标志阻止重复提醒。
@@ -114,17 +117,43 @@ class ReminderController {
 
     if (granted) {
       try {
-        await OverlayWindowService.sendReminderData(
-          mode: mode.storageKey,
-          packageName: packageName,
-          appName: appLabel,
-          snoozeMinutes: snoozeMinutes,
-        );
+        // 先拉起服务，再送数据：Overlay 引擎未就绪时 shareData 会被直接丢弃，
+        // 旧实现先送数据后 show，导致悬浮窗里只剩占位符（用户以为“没提醒”）。
         await OverlayWindowService.show();
+        _overlayAck = Completer<void>();
+        await Future<void>.delayed(const Duration(milliseconds: 400));
 
-        // Overlay 服务从后台拉起是异步且可能被系统丢弃，稍等后复核。
-        await Future<void>.delayed(const Duration(milliseconds: 600));
-        overlayOk = await OverlayWindowService.isActive();
+        Future<void> pushData() => OverlayWindowService.sendReminderData(
+              mode: mode.storageKey,
+              packageName: packageName,
+              appName: appLabel,
+              snoozeMinutes: snoozeMinutes,
+            );
+        await pushData();
+
+        var overlayAcked = false;
+        try {
+          await _overlayAck!.future.timeout(const Duration(milliseconds: 1200));
+          overlayAcked = true;
+        } on TimeoutException {
+          overlayAcked = false;
+        }
+
+        if (!overlayAcked) {
+          _logger.warning('Overlay 未回执渲染完成，补送一次提醒数据', tag: 'Reminder');
+          await pushData();
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          overlayAcked = _overlayAck!.isCompleted;
+        }
+
+        // isActive() 只反映 OverlayService 是否在跑（插件里是静态布尔），
+        // 服务在跑 ≠ 窗口真的画出来了，必须叠加“渲染完成回执”才敢认定成功。
+        final serviceRunning = await OverlayWindowService.isActive();
+        overlayOk = overlayAcked && serviceRunning;
+        _logger.info(
+          'Overlay 复核：渲染回执=$overlayAcked 服务运行中=$serviceRunning → 视为已显示=$overlayOk',
+          tag: 'Reminder',
+        );
       } catch (e) {
         _logger.error('Overlay 展示异常: $e', tag: 'Reminder');
         overlayOk = false;
@@ -133,6 +162,10 @@ class ReminderController {
 
     // 系统通知是兜底必达通道，始终发送；但 Overlay 已经显示时降级为静默
     // （不响铃、不震动、不弹全屏），避免悬浮窗 + 通知 + 震动三重叠的重复打扰。
+    _logger.info(
+      '系统通知策略：${overlayOk ? "悬浮窗已确认显示 → 静默通知（仅留存）" : "悬浮窗未确认 → 完整通知（响铃+横幅/全屏）"}',
+      tag: 'Reminder',
+    );
     final notificationSent = await _sendNotificationSafely(
       mode,
       continuousMinutes,
@@ -189,6 +222,12 @@ class ReminderController {
     final action = data['action'] as String?;
     _logger.info('Overlay action: $action', tag: 'Reminder');
     switch (action) {
+      case 'overlayShown':
+        // Overlay 内容真正渲染完成的回执：只有收到它才允许把系统通知降级为静默。
+        if (_overlayAck != null && !_overlayAck!.isCompleted) {
+          _overlayAck!.complete();
+        }
+        break;
       case 'snooze':
         await snooze();
         break;
