@@ -6,6 +6,7 @@ import 'package:is_it_enough/features/breathing/breathing_page.dart';
 import 'package:is_it_enough/features/logs/log_export_dialog.dart';
 import 'package:is_it_enough/features/logs/log_viewer_page.dart';
 import 'package:is_it_enough/features/reminder/reminder_overlay_channel.dart';
+import 'package:is_it_enough/features/settings/presentation/auto_start_guide_page.dart';
 import 'package:is_it_enough/shared/services/logger_service.dart';
 import 'package:is_it_enough/shared/services/notification_service.dart';
 import 'package:is_it_enough/shared/services/permission_diagnosis_service.dart';
@@ -36,6 +37,8 @@ class SettingsPage extends StatelessWidget {
             _buildQuickStartCard(context),
             const SizedBox(height: 12),
             _buildMonitoringCard(context, settings),
+            const SizedBox(height: 12),
+            _buildAutoStartCard(context, settings),
             const SizedBox(height: 12),
             _buildModeCard(context, settings),
             const SizedBox(height: 12),
@@ -133,6 +136,45 @@ class SettingsPage extends StatelessWidget {
             subtitle: const Text('30秒内切回原应用继续计算提醒时间'),
             value: settings.debounceEnabled,
             onChanged: (value) => settings.setDebounceEnabled(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------- 自启动 ----------
+
+  /// 自启动开关 + 厂商保活引导入口。
+  ///
+  /// 国产 ROM 会杀后台，进程被清掉后提醒彻底失效；这里给一个显式开关和
+  /// 一份「去系统设置打开哪几项」的说明页。
+  Widget _buildAutoStartCard(BuildContext context, SettingsService settings) {
+    return _SectionCard(
+      title: '自启动与保活',
+      icon: Icons.restart_alt,
+      child: Column(
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('开机自启动'),
+            subtitle: const Text('重启/应用更新后自动恢复后台监控服务'),
+            value: settings.autoStartEnabled,
+            onChanged: (value) => settings.setAutoStartEnabled(value),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('自启动引导'),
+            subtitle: const Text('小米/华为/OPPO/vivo 需要手动放行的 3 项设置'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AutoStartGuidePage(),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -303,6 +345,24 @@ class SettingsPage extends StatelessWidget {
       icon: Icons.bug_report_outlined,
       child: Column(
         children: [
+          if (settings.debugMode)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFD89C).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: const Color(0xFFFFD89C).withValues(alpha: 0.4),
+                ),
+              ),
+              child: const Text(
+                '⚠️ 调试模式开启中：提醒阈值被覆盖为 1 分钟、日志全量输出。'
+                '正式使用/发版前请关闭。',
+                style: TextStyle(fontSize: 12, height: 1.5),
+              ),
+            ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.developer_mode_outlined),

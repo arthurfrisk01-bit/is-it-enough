@@ -10,6 +10,7 @@ import 'package:is_it_enough/features/reminder/weak_reminder_view.dart';
 ///
 /// [appName] 是展示给用户的应用名称（如“微信”），由调用方从
 /// UsageStats 的 appLabel 取，拿不到时回退为包名。
+/// [continuousMinutes] 是本次连续使用时长，用于强调“已经刷了多久”。
 class InAppReminderPage extends StatelessWidget {
   const InAppReminderPage({
     super.key,
@@ -18,13 +19,19 @@ class InAppReminderPage extends StatelessWidget {
     required this.snoozeMinutes,
     required this.onSnooze,
     required this.onPutDown,
+    required this.onFocus,
+    this.continuousMinutes = 0,
   });
 
   final ReminderMode mode;
   final String appName;
   final int snoozeMinutes;
+  final int continuousMinutes;
   final VoidCallback onSnooze;
   final VoidCallback onPutDown;
+
+  /// “正在专注，1 小时内勿扰”。
+  final VoidCallback onFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -32,8 +39,10 @@ class InAppReminderPage extends StatelessWidget {
       return StrongReminderView(
         appName: appName,
         snoozeMinutes: snoozeMinutes,
+        continuousMinutes: continuousMinutes,
         onSnooze: onSnooze,
         onPutDown: onPutDown,
+        onFocus: onFocus,
       );
     }
 
@@ -48,8 +57,10 @@ class InAppReminderPage extends StatelessWidget {
             child: WeakReminderView(
               appName: appName,
               snoozeMinutes: snoozeMinutes,
+              continuousMinutes: continuousMinutes,
               onSnooze: onSnooze,
               onPutDown: onPutDown,
+              onFocus: onFocus,
               onClose: onSnooze,
             ),
           ),

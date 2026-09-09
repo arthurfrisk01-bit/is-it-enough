@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -54,6 +56,25 @@ class UsageStatsMethodChannel {
       );
     } on PlatformException catch (e) {
       debugPrint('[UsageStats] getAppLabel error: ${e.message}');
+      return null;
+    }
+  }
+
+  /// 今日（可指定天数）各应用使用会话，返回原生侧拼好的 JSON 字符串。
+  ///
+  /// 无“使用情况访问”权限时返回 null。带 5 秒超时：宿主未实现该通道时
+  /// `invokeMethod` 的 Future 可能永远不完成（例如桌面预览/测试环境），
+  /// 不能让统计页一直转圈。
+  Future<String?> getUsageTimeline({int days = 1}) async {
+    try {
+      return await _channel
+          .invokeMethod<String?>('getUsageTimeline', {'days': days})
+          .timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      debugPrint('[UsageStats] getUsageTimeline 超时（宿主未实现该通道？）');
+      return null;
+    } on PlatformException catch (e) {
+      debugPrint('[UsageStats] getUsageTimeline error: ${e.message}');
       return null;
     }
   }

@@ -33,14 +33,17 @@ void main() {
     // 首帧还在 _LoadingScreen（异步读取 first_run），必须等它结束。
     await tester.pumpAndSettle();
 
-    // 统计页（默认 tab）
+    // 统计页（默认 tab）：概览数字 + 今日使用量 / 时间线分区。
     expect(find.text('统计'), findsWidgets);
-    expect(find.text('现在放下'), findsOneWidget);
+    expect(find.text('累计触发'), findsOneWidget);
+    expect(find.text('今日使用量'), findsOneWidget);
+    expect(find.text('使用时间线'), findsOneWidget);
 
-    // 切到设置页
+    // 切到设置页。
     await tester.tap(find.text('设置').last);
     await tester.pumpAndSettle();
 
     expect(find.text('后台监控'), findsOneWidget);
+    expect(find.text('自启动与保活'), findsOneWidget);
   });
 }

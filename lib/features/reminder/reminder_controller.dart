@@ -96,7 +96,7 @@ class ReminderController {
       );
     } else {
       // iOS / 桌面预览：直接 App 内提醒（无后台 Overlay 概念）。
-      _openInAppReminder(mode, appLabel, minutes);
+      _openInAppReminder(mode, appLabel, minutes, continuousMinutes);
     }
   }
 
@@ -151,7 +151,8 @@ class ReminderController {
       '${notificationSent ? "已发送通知" : "通知失败"}，尝试打开 App 内提醒',
       tag: 'Reminder',
     );
-    final appPageOpened = _openInAppReminder(mode, appLabel, snoozeMinutes);
+    final appPageOpened =
+        _openInAppReminder(mode, appLabel, snoozeMinutes, continuousMinutes);
 
     // 如果所有提醒通道都失败，强制记录严重错误
     if (!notificationSent && !appPageOpened) {
@@ -195,6 +196,9 @@ class ReminderController {
       case 'putDown':
         await putDown();
         break;
+      case 'focus':
+        await focusMode();
+        break;
       default:
         _logger.debug('悬浮窗操作: $action', tag: 'Reminder');
         break;
@@ -224,6 +228,26 @@ class ReminderController {
     
     final displayTime = _settings.debugMode ? '30 秒' : '$minutes 分钟';
     _logger.info('再刷 $displayTime（累计 $_snoozeCount 次）', tag: 'Reminder');
+  }
+
+  /// 点击“正在专注？1 小时内勿扰”。
+  ///
+  /// 用户明确表示自己在专注（写方案、开会、陪家人…），这时再弹提醒只会添乱。
+  /// 关闭当前提醒并把勿扰截止时刻写进配置：界面引擎与无界面引擎读同一份值，
+  /// 进程被杀/重启后依然有效。
+  Future<void> focusMode() async {
+    const duration = AppConstants.focusSuppressDuration;
+    _activePackage = null;
+    _snoozeCount = 0;
+    _lastTriggerPackage = null;
+    await ReminderOverlayChannel.hide();
+    await NotificationReminderService().cancelReminder();
+    _monitor.resetSession();
+    await _settings.suppressFocus(duration: duration);
+    _logger.info(
+      '开启专注勿扰 ${duration.inHours} 小时（至 ${_settings.focusSuppressUntil}）',
+      tag: 'Reminder',
+    );
   }
 
   /// 点击“现在放下”。
@@ -278,6 +302,7 @@ class ReminderController {
       openReminderFromNotification(
         mode: ReminderMode.fromStorage(data['mode'] as String?),
         appName: data['appName'] as String? ?? '这个应用',
+        continuousMinutes: (data['continuousMinutes'] as num?)?.toInt() ?? 0,
       );
     } catch (e) {
       _logger.warning('解析通知 payload 失败: $e', tag: 'Reminder');
@@ -292,14 +317,15 @@ class ReminderController {
   void openReminderFromNotification({
     required ReminderMode mode,
     required String appName,
+    int continuousMinutes = 0,
   }) {
     final minutes = _snoozeMinutes;
     if (appNavigatorKey.currentState != null) {
-      _openInAppReminder(mode, appName, minutes);
+      _openInAppReminder(mode, appName, minutes, continuousMinutes);
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _openInAppReminder(mode, appName, minutes);
+      _openInAppReminder(mode, appName, minutes, continuousMinutes);
     });
   }
 
@@ -307,6 +333,7 @@ class ReminderController {
     ReminderMode mode,
     String appName,
     int minutes,
+    int continuousMinutes,
   ) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) {
@@ -321,6 +348,7 @@ class ReminderController {
           mode: mode,
           appName: appName,
           snoozeMinutes: minutes,
+          continuousMinutes: continuousMinutes,
           onSnooze: () {
             navigator.pop();
             unawaited(snooze());
@@ -328,6 +356,10 @@ class ReminderController {
           onPutDown: () {
             navigator.pop();
             unawaited(putDown());
+          },
+          onFocus: () {
+            navigator.pop();
+            unawaited(focusMode());
           },
         ),
       ),

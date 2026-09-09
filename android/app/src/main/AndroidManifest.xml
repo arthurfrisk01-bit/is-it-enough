@@ -98,5 +98,16 @@
         <intent>
             <action android:name="android.settings.action.MANAGE_OVERLAY_PERMISSION" />
         </intent>
+        <!--
+          包可见性（Android 11+ / targetSdk 30+）：不声明的话
+          PackageManager.getApplicationInfo(其他应用包名) 会抛 NameNotFoundException，
+          导致提醒里只能显示包名而不是「微信」。
+          这里声明“带桌面图标的应用”这一常见 intent，即可看到所有用户可见的应用，
+          无需申请受 Google Play 严格限制的 QUERY_ALL_PACKAGES。
+        -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 </manifest>

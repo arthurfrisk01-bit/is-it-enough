@@ -30,4 +30,17 @@ class MonitorServiceChannel {
       LoggerService().debug('停止后台监控服务失败: $e', tag: 'MonitorService');
     }
   }
+
+  /// 更新常驻通知正文（当前应用 + 已使用时长）。
+  ///
+  /// 服务未运行时原生侧静默忽略，不会凭空冒出通知。
+  static Future<void> updateStatus(String text) async {
+    try {
+      await _channel.invokeMethod<bool>('updateStatus', <String, dynamic>{
+        'text': text,
+      });
+    } catch (e) {
+      LoggerService().debug('更新常驻通知失败: $e', tag: 'MonitorService');
+    }
+  }
 }

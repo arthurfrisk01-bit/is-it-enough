@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// 弱提醒：屏幕上方轻量悬浮 Card。
 ///
-/// 不阻断当前操作，只提供倒计时与轻提示。
+/// 不阻断当前操作，只提供轻提示与三个选择（再刷 / 现在放下 / 专注勿扰）。
 /// 该组件既可嵌入 Overlay 小窗，也可用于 App 内预览。
 class WeakReminderView extends StatefulWidget {
   const WeakReminderView({
@@ -11,6 +11,8 @@ class WeakReminderView extends StatefulWidget {
     required this.snoozeMinutes,
     required this.onSnooze,
     required this.onPutDown,
+    required this.onFocus,
+    this.continuousMinutes = 0,
     this.onClose,
   });
 
@@ -20,11 +22,17 @@ class WeakReminderView extends StatefulWidget {
   /// 本次"再刷"的分钟数（正常 5 分钟，连续 3 次后为 2 分钟）。
   final int snoozeMinutes;
 
+  /// 本次连续使用时长（分钟）。
+  final int continuousMinutes;
+
   /// 点击"再刷 X 分钟"。
   final VoidCallback onSnooze;
 
   /// 点击"现在放下"。
   final VoidCallback onPutDown;
+
+  /// 点击"正在专注，1 小时内勿扰"。
+  final VoidCallback onFocus;
 
   /// 关闭当前提醒（不重置会话）。
   final VoidCallback? onClose;
@@ -64,6 +72,8 @@ class _WeakReminderViewState extends State<WeakReminderView>
 
   @override
   Widget build(BuildContext context) {
+    final minutes = widget.continuousMinutes;
+
     return SlideTransition(
       position: Tween<Offset>(
         begin: const Offset(0, -1),
@@ -116,16 +126,14 @@ class _WeakReminderViewState extends State<WeakReminderView>
                       builder: (context, value, child) {
                         return Transform.scale(
                           scale: 0.8 + (value * 0.2),
-                          child: Opacity(
-                            opacity: value,
-                            child: const Icon(
-                              Icons.spa_outlined,
-                              color: Color(0xFF9ED8C4),
-                              size: 22,
-                            ),
-                          ),
+                          child: Opacity(opacity: value, child: child),
                         );
                       },
+                      child: const Icon(
+                        Icons.spa_outlined,
+                        color: Color(0xFF9ED8C4),
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     const Expanded(
@@ -154,13 +162,17 @@ class _WeakReminderViewState extends State<WeakReminderView>
                   ],
                 ),
                 const SizedBox(height: 8),
+                // 主信息：应用名 + 已用时长。
                 Text(
-                  '你已经在 ${widget.appName} 上停留一段时间了',
+                  minutes > 0
+                      ? '${widget.appName} · 已用 $minutes 分钟'
+                      : '你已经在 ${widget.appName} 上停留一段时间了',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontSize: 13,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                     height: 1.4,
                   ),
                 ),
@@ -186,7 +198,11 @@ class _WeakReminderViewState extends State<WeakReminderView>
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: widget.onSnooze,
-                        child: Text(widget.snoozeMinutes == 0 ? '再刷 30 秒' : '再刷 ${widget.snoozeMinutes} 分钟'),
+                        child: Text(
+                          widget.snoozeMinutes == 0
+                              ? '再刷 30 秒'
+                              : '再刷 ${widget.snoozeMinutes} 分钟',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -207,6 +223,22 @@ class _WeakReminderViewState extends State<WeakReminderView>
                       ),
                     ),
                   ],
+                ),
+                Align(
+                  alignment: Alignment.center,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.only(top: 10),
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: widget.onFocus,
+                    child: const Text(
+                      '正在专注？点此 1 小时内勿扰',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
                 ),
               ],
             ),

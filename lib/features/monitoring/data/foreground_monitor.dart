@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:is_it_enough/core/constants/app_constants.dart';
+import 'package:is_it_enough/features/monitoring/data/monitor_service_channel.dart';
 import 'package:is_it_enough/features/monitoring/data/usage_stats_method_channel.dart';
 import 'package:is_it_enough/features/monitoring/domain/monitor_trigger_event.dart';
 import 'package:is_it_enough/shared/services/settings_service.dart';
@@ -10,7 +11,9 @@ import 'package:is_it_enough/shared/services/logger_service.dart';
 ///
 /// - 每 [AppConstants.usagePollInterval] 查询一次前台包名；
 /// - 连续使用同一应用达到阈值后发出 [MonitorTriggerEvent]；
-/// - 支持“再刷 5/2 分钟”的强制延后提醒（通过 [snooze] 设置强制触发点）。
+/// - 支持“再刷 5/2 分钟”的强制延后提醒（通过 [snooze] 设置强制触发点）；
+/// - 支持“专注勿扰”：[SettingsService.focusSuppressUntil] 之前不触发、不计时；
+/// - 每轮把「当前应用 + 已用时长」推给常驻通知（见 [MonitorServiceChannel.updateStatus]）。
 ///
 /// 该类只在 Android 上启用；iOS 版不启动轮询。
 class ForegroundMonitor {
@@ -36,6 +39,15 @@ class ForegroundMonitor {
   /// 因“监控关闭 / 无权限”被阻断时只记录一条日志，
   /// 避免每 5 秒写一条把 500 条日志队列冲满。
   bool _loggedBlockedState = false;
+
+  /// “专注勿扰”期内只记一条日志。
+  bool _loggedFocusState = false;
+
+  /// 包名 → 应用显示名缓存（避免每轮都走一次 MethodChannel）。
+  final Map<String, String> _labelCache = {};
+
+  /// 上次推送给常驻通知的 key（包名 + 分钟数），相同则不重复 notify。
+  String? _lastNotifyKey;
 
   /// 当前处于前台的包名。
   String? _currentPackage;
@@ -80,6 +92,7 @@ class ForegroundMonitor {
     _timer?.cancel();
     _timer = null;
     _resetSession();
+    unawaited(_syncNotificationStatus(null, Duration.zero));
   }
 
   /// 重置当前会话（例如用户进入呼吸页/主动放下后调用）。
@@ -121,6 +134,25 @@ class ForegroundMonitor {
       return;
     }
 
+    // “专注勿扰”：用户明确表示正在专注，这段时间不提醒、也不累计会话，
+    // 避免勿扰结束后立刻被判定为超时。
+    if (_settings.isFocusSuppressed) {
+      if (!_loggedFocusState) {
+        logger.info(
+          '专注勿扰中（至 ${_settings.focusSuppressUntil}），暂停判定',
+          tag: 'Monitor',
+        );
+        _loggedFocusState = true;
+      }
+      _resetSession();
+      unawaited(_syncNotificationStatus(null, Duration.zero));
+      return;
+    }
+    if (_loggedFocusState) {
+      logger.info('专注勿扰结束，恢复判定', tag: 'Monitor');
+      _loggedFocusState = false;
+    }
+
     final granted = await _usageStats.isUsageAccessGranted();
     if (!granted) {
       if (!_loggedBlockedState) {
@@ -138,6 +170,7 @@ class ForegroundMonitor {
       // 与“切走”一样先停靠，消抖窗口内切回原应用可恢复累计。
       logger.debug('无法获取前台包名，会话停靠等待消抖', tag: 'Monitor');
       _parkSessionIfActive(DateTime.now());
+      unawaited(_syncNotificationStatus(null, Duration.zero));
       return;
     }
 
@@ -148,6 +181,7 @@ class ForegroundMonitor {
       // 现在像“切走”一样停靠，30 秒内回到原应用由消抖逻辑恢复计时。
       logger.debug('忽略包名 $package（会话停靠等待消抖）', tag: 'Monitor');
       _parkSessionIfActive(DateTime.now());
+      unawaited(_syncNotificationStatus(null, Duration.zero));
       return;
     }
 
@@ -173,6 +207,7 @@ class ForegroundMonitor {
         _previousPackage = null;
         _switchedAt = null;
         _accumulatedTime = null;
+        unawaited(_syncNotificationStatus(package, accumulatedTime));
         return;
       }
 
@@ -196,16 +231,18 @@ class ForegroundMonitor {
       _sessionTriggered = false;
       _forcedTriggerAt = null;
       _suppressedUntil = null;
+      unawaited(_syncNotificationStatus(package, Duration.zero));
       return;
     }
+
+    final elapsed = now.difference(_currentSince ?? now);
+    unawaited(_syncNotificationStatus(package, elapsed));
 
     // 仍在“再刷 X 分钟”屏蔽期内。
     final suppressedUntil = _suppressedUntil;
     if (suppressedUntil != null && now.isBefore(suppressedUntil)) {
       return;
     }
-
-    final elapsed = now.difference(_currentSince ?? now);
 
     // 1) 到“再刷”强制时刻：无论是否达到阈值都再次提醒。
     final forcedAt = _forcedTriggerAt;
@@ -214,7 +251,7 @@ class ForegroundMonitor {
       _sessionTriggered = true;
       _forcedTriggerAt = null;  // 触发后清除，避免重复触发
       _suppressedUntil = null;
-      final appLabel = await _usageStats.getAppLabel(package);
+      final appLabel = await _labelFor(package);
       _onTrigger(
         MonitorTriggerEvent(
           packageName: package,
@@ -226,14 +263,14 @@ class ForegroundMonitor {
     }
 
     // 2) 普通阈值触发：连续使用达到设置时长。
-    final effectiveThreshold = _settings.debugMode 
-        ? const Duration(minutes: 1) 
+    final effectiveThreshold = _settings.debugMode
+        ? const Duration(minutes: 1)
         : Duration(minutes: _settings.thresholdMinutes);
-    
+
     if (!_sessionTriggered && elapsed >= effectiveThreshold) {
       logger.warning('触发提醒 $package (已使用 ${elapsed.inMinutes} 分钟)', tag: 'Monitor');
       _sessionTriggered = true;
-      final appLabel = await _usageStats.getAppLabel(package);
+      final appLabel = await _labelFor(package);
       _onTrigger(
         MonitorTriggerEvent(
           packageName: package,
@@ -250,34 +287,39 @@ class ForegroundMonitor {
     }
   }
 
-  bool _shouldIgnore(String packageName) {
-    // 自身不应被监控。
-    if (packageName == 'com.isitenough.app') return true;
-
-    // MVP 黑名单：名单内的包不触发。
-    if (_settings.blacklistedPackageNames.contains(packageName)) return true;
-
-    // 常见系统包/桌面，避免误判。
-    const ignoredPrefixes = [
-      'com.android.systemui',          // Android 系统 UI
-      'com.android.launcher',          // 原生桌面
-      'com.google.android.apps.nexuslauncher',  // Pixel 桌面
-      'com.miui.home',                 // 小米桌面
-      'com.huawei.android.launcher',   // 华为桌面
-      'com.oppo.launcher',             // OPPO 桌面
-      'com.vivo.launcher',             // vivo 桌面
-      'com.samsung.android.app.launcher',  // 三星桌面
-      'com.meizu.flyme.launcher',      // 魅族桌面
-      'com.oneplus.launcher',          // 一加桌面
-      'com.realme.launcher',           // Realme 桌面
-      'com.transsion.hilauncher',      // 传音桌面
-      'com.teslacoilsw.launcher',      // Nova Launcher
-      'com.microsoft.launcher',        // Microsoft Launcher
-      'com.android.settings',          // 系统设置
-      'com.android.vending',           // Google Play
-    ];
-    return ignoredPrefixes.any(packageName.startsWith);
+  /// 包名 → 应用显示名（带缓存；拿不到时回退包名）。
+  Future<String> _labelFor(String packageName) async {
+    final cached = _labelCache[packageName];
+    if (cached != null) return cached;
+    final label = await _usageStats.getAppLabel(packageName) ?? packageName;
+    _labelCache[packageName] = label;
+    return label;
   }
+
+  /// 把「当前应用 + 已用时长」推到常驻通知。
+  ///
+  /// [package] 为 null 表示当前没有参与判定的前台应用（熄屏/桌面/勿扰），
+  /// 通知回到默认文案。同一分钟内的重复内容不会重复 notify。
+  Future<void> _syncNotificationStatus(String? package, Duration elapsed) async {
+    String text;
+    if (package == null) {
+      text = '正在后台守护你的专注，点击打开';
+    } else {
+      final label = await _labelFor(package);
+      final minutes = elapsed.inMinutes;
+      text = minutes < 1
+          ? '正在守护：$label · 刚刚开始'
+          : '正在守护：$label · 已用 $minutes 分钟';
+    }
+    final key = '$package|$text';
+    if (key == _lastNotifyKey) return;
+    _lastNotifyKey = key;
+    await MonitorServiceChannel.updateStatus(text);
+  }
+
+  bool _shouldIgnore(String packageName) =>
+      AppConstants.isIgnoredPackage(packageName) ||
+      _settings.blacklistedPackageNames.contains(packageName);
 
   /// 把当前活跃会话“停靠”起来（类似切走应用），等待消抖窗口内恢复。
   ///

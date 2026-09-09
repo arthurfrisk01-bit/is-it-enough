@@ -12,14 +12,19 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Calendar
 
 /**
  * UsageStatsManager MethodChannel 桥。
  *
- * 提供三个能力：
+ * 提供四个能力：
  * 1. isUsageAccessGranted    —— 当前是否已授予“使用情况访问权限”
  * 2. openUsageAccessSettings —— 跳转系统使用情况访问设置页
  * 3. getForegroundPackage    —— 通过 UsageStatsManager 推断当前前台应用包名
+ * 4. getAppLabel             —— 包名 → 应用显示名（“微信”而不是 com.tencent.mm）
+ * 5. getUsageTimeline        —— 今日各应用使用会话（统计页时间线 + 使用量）
  */
 class UsageStatsBridge(
     engine: FlutterEngine,
@@ -39,6 +44,12 @@ class UsageStatsBridge(
          * 停靠+恢复、累计时间被重置。6 小时覆盖绝大多数单次连续使用。
          */
         private const val EVENT_LOOKBACK_MS = 6 * 60 * 60 * 1000L
+
+        /** 时间线里忽略的过短会话（毫秒），避免返回大量瞬跳记录。 */
+        private const val MIN_SESSION_MS = 1_000L
+
+        /** 单个应用最多返回的会话数，控制 JSON 体积。 */
+        private const val MAX_SESSIONS_PER_APP = 40
     }
 
     private val channel = MethodChannel(
@@ -60,6 +71,7 @@ class UsageStatsBridge(
             "openUsageAccessSettings" -> openUsageAccessSettings(result)
             "getForegroundPackage" -> getForegroundPackage(result)
             "getAppLabel" -> getAppLabel(call, result)
+            "getUsageTimeline" -> getUsageTimeline(call, result)
             else -> result.notImplemented()
         }
     }
@@ -206,6 +218,116 @@ class UsageStatsBridge(
         return current
     }
 
+    /**
+     * 今日（可指定天数）各应用使用会话。
+     *
+     * 返回 JSON 字符串，结构：
+     * `{"start":ms,"end":ms,"apps":[{"package":"..","label":"微信","totalMs":n,
+     *   "sessions":[{"start":ms,"end":ms}]}]}`
+     *
+     * 无权限时返回 null，由 Dart 侧提示用户授权。
+     */
+    private fun getUsageTimeline(call: MethodCall, result: Result) {
+        try {
+            if (!isUsageAccessGranted()) {
+                LogStore.append(context, "使用量查询失败：未授予“使用情况访问权限”", "Native")
+                result.success(null)
+                return
+            }
+
+            val days = (call.argument<Int>("days") ?: 1).coerceIn(1, 7)
+            val calendar = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, -(days - 1))
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val begin = calendar.timeInMillis
+            val now = System.currentTimeMillis()
+
+            val usageStatsManager =
+                context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val events = usageStatsManager.queryEvents(begin, now)
+            val event = android.app.usage.UsageEvents.Event()
+
+            val openStarts = HashMap<String, Long>()
+            val sessions = HashMap<String, MutableList<LongArray>>()
+            var screenOff = false
+
+            fun closeSession(pkg: String, end: Long) {
+                val start = openStarts.remove(pkg) ?: return
+                if (end - start < MIN_SESSION_MS) return
+                sessions.getOrPut(pkg) { mutableListOf() }.add(longArrayOf(start, end))
+            }
+
+            fun closeAll(end: Long) {
+                for (pkg in openStarts.keys.toList()) closeSession(pkg, end)
+            }
+
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val pkg = event.packageName ?: continue
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        // 同一时刻可能残留其它包的开放会话（事件缺失时），先收口。
+                        if (!openStarts.containsKey(pkg)) openStarts[pkg] = event.timeStamp
+                    }
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> {
+                        closeSession(pkg, event.timeStamp)
+                    }
+                    android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                        closeAll(event.timeStamp)
+                        screenOff = true
+                    }
+                    android.app.usage.UsageEvents.Event.SCREEN_INTERACTIVE -> {
+                        screenOff = false
+                    }
+                }
+            }
+            // 仍在使用的会话：屏幕亮着就补到“现在”，熄屏则丢弃（没有终点）。
+            if (!screenOff) closeAll(now)
+
+            val appsJson = JSONArray()
+            for ((pkg, list) in sessions) {
+                if (pkg == context.packageName) continue
+                val total = list.sumOf { it[1] - it[0] }
+                val sorted = list.sortedByDescending { it[1] }.take(MAX_SESSIONS_PER_APP)
+                val sessionJson = JSONArray()
+                for (s in sorted) {
+                    sessionJson.put(
+                        JSONObject()
+                            .put("start", s[0])
+                            .put("end", s[1]),
+                    )
+                }
+                appsJson.put(
+                    JSONObject()
+                        .put("package", pkg)
+                        .put("label", labelFor(pkg))
+                        .put("totalMs", total)
+                        .put("sessions", sessionJson),
+                )
+            }
+
+            val root = JSONObject()
+                .put("start", begin)
+                .put("end", now)
+                .put("apps", appsJson)
+            result.success(root.toString())
+        } catch (e: SecurityException) {
+            result.error(
+                "USAGE_ACCESS_REQUIRED",
+                "缺少使用情况访问权限：${e.message}",
+                e.stackTraceToString(),
+            )
+        } catch (e: Exception) {
+            LogStore.append(context, "使用量查询异常: ${e.javaClass.simpleName}: ${e.message}", "Native")
+            result.error("GET_USAGE_TIMELINE_FAILED", e.message, e.stackTraceToString())
+        }
+    }
+
     /** 获取应用名称（通过包名查询 ApplicationInfo）。 */
     private fun getAppLabel(call: MethodCall, result: Result) {
         try {
@@ -214,15 +336,26 @@ class UsageStatsBridge(
                 result.error("INVALID_ARGUMENT", "packageName is required", null)
                 return
             }
-
-            val pm = context.packageManager
-            val appInfo = pm.getApplicationInfo(packageName, 0)
-            val label = pm.getApplicationLabel(appInfo).toString()
-            result.success(label)
-        } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
-            result.success(null)  // 应用未安装，返回null
+            result.success(labelFor(packageName))
         } catch (e: Exception) {
             result.error("GET_APP_LABEL_FAILED", e.message, e.stackTraceToString())
+        }
+    }
+
+    /**
+     * 包名 → 应用显示名。
+     *
+     * Android 11+ 受包可见性限制时 `getApplicationInfo` 会抛
+     * NameNotFoundException；manifest 里已声明 LAUNCHER intent 查询，
+     * 正常情况下能拿到「微信」。仍失败时回退为包名最后一段（比整串包名可读）。
+     */
+    private fun labelFor(packageName: String): String {
+        return try {
+            val pm = context.packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName.substringAfterLast('.', packageName)
         }
     }
 }

@@ -79,6 +79,14 @@ object AppBridges {
                         MonitorForegroundService.stop(context)
                         result.success(true)
                     }
+                    // 常驻通知动态正文：Dart 侧每轮轮询把“当前应用 + 已用时长”推过来。
+                    "updateStatus" -> {
+                        val text = call.argument<String>("text")
+                        if (!text.isNullOrEmpty()) {
+                            MonitorForegroundService.updateStatus(context, text)
+                        }
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }

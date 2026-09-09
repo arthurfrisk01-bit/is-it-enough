@@ -45,9 +45,13 @@ import kotlin.math.min
  * - 通过 SYSTEM_ALERT_WINDOW 直接覆盖在任意应用之上（这是“前台全屏”唯一可靠
  *   的机制 —— 系统通知的全屏 Intent 在屏幕点亮/解锁时会被系统降级成横幅）；
  * - 锁屏时悬浮窗不可见，此时返回 false，由系统通知的全屏 Intent 兜底；
- * - strong=全屏遮罩 + 呼吸圆环，soft=顶部轻量卡片（不遮挡下方应用操作）。
+ * - strong=全屏遮罩 + 小呼吸圆环，soft=顶部轻量卡片（不遮挡下方应用操作）。
  *
- * 用户点击按钮后由 [ReminderOverlayBridge] 把 `snooze` / `putDown` 回传 Dart。
+ * 视觉层级（2026-09 大版本调整）：主要信息是「哪个应用 + 已经用了多久」，
+ * 呼吸圆环缩小到 120dp 作为陪衬，不再与文字抢注意力。
+ *
+ * 用户点击按钮后由 [ReminderOverlayBridge] 把 `snooze` / `putDown` / `focus`
+ * 回传 Dart。
  */
 object ReminderOverlay {
 
@@ -124,9 +128,9 @@ object ReminderOverlay {
                 onAction(action)
             }
             val view = if (strong) {
-                buildStrong(app, appName, snoozeMinutes, handle)
+                buildStrong(app, appName, snoozeMinutes, continuousMinutes, handle)
             } else {
-                buildWeak(app, appName, snoozeMinutes, handle)
+                buildWeak(app, appName, snoozeMinutes, continuousMinutes, handle)
             }
             val wm = app.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             wm.addView(view, buildLayoutParams(app, strong))
@@ -138,10 +142,17 @@ object ReminderOverlay {
             if (strong) vibrate(app)
             LogStore.append(
                 app,
-                "悬浮窗已显示：模式=$mode 应用=$appName 已用=${continuousMinutes}分钟 " +
-                    "附加=$attached 尺寸=${view.width}x${view.height}",
+                "悬浮窗已显示：模式=$mode 应用=$appName 已用=${continuousMinutes}分钟 附加=$attached",
                 "Overlay",
             )
+            // 尺寸要等一帧布局完成后再读，否则永远是 0x0（旧日志噪音来源）。
+            view.post {
+                LogStore.append(
+                    app,
+                    "悬浮窗实际尺寸=${view.width}x${view.height}",
+                    "Overlay",
+                )
+            }
             attached
         } catch (t: Throwable) {
             Log.e(TAG, "显示悬浮窗失败", t)
@@ -238,11 +249,16 @@ object ReminderOverlay {
 
     // ---------------------------------------------------------------- strong
 
-    /** 强提醒：全屏深色遮罩 + 呼吸圆环 + 两个按钮。 */
+    /**
+     * 强提醒：全屏深色遮罩 + 大号主信息（应用名 + 已用时长）+ 小呼吸圆环 + 按钮。
+     *
+     * 视觉层级：应用名/时长是主角，呼吸圆环缩到 120dp 只做引导，不再与文字抢注意力。
+     */
     private fun buildStrong(
         context: Context,
         appName: String,
         snoozeMinutes: Int,
+        continuousMinutes: Int,
         onAction: (String) -> Unit,
     ): View {
         val rootView = FrameLayout(context).apply {
@@ -255,16 +271,10 @@ object ReminderOverlay {
             setOnClickListener { /* 空白区域不做任何事 */ }
         }
 
-        // 呼吸圆环居中铺在底层。
-        rootView.addView(
-            BreathingRingView(context),
-            FrameLayout.LayoutParams(context.dp(220f), context.dp(220f), Gravity.CENTER),
-        )
-
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(context.dp(32f), context.dp(32f), context.dp(32f), context.dp(32f))
+            setPadding(context.dp(28f), context.dp(28f), context.dp(28f), context.dp(28f))
         }
         rootView.addView(
             column,
@@ -274,37 +284,61 @@ object ReminderOverlay {
             ),
         )
 
-        column.addView(View(context), LinearLayout.LayoutParams(1, 0, 2f))
+        column.addView(View(context), LinearLayout.LayoutParams(1, 0, 1.6f))
 
-        val title = TextView(context).apply {
-            text = "够了吗"
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            letterSpacing = 0.12f
-            gravity = Gravity.CENTER
-            setShadowLayer(28f, 0f, 0f, TEAL)
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-        }
-        column.addView(title, wrap())
-
+        // 小标签。
         column.addView(
-            textView(context, "你已经在 $appName 上停留太久", 16f, 0xB3FFFFFF.toInt(), bold = false).apply {
+            textView(context, "够了吗", 16f, 0x8AFFFFFF.toInt()).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, context.dp(16f), 0, 0)
+                letterSpacing = 0.3f
             },
             wrap(),
         )
+
+        // 主信息一：应用名（最大最亮）。
         column.addView(
-            textView(context, "先停一下，跟随圆环呼吸", 14f, 0x99A8E6C9.toInt()).apply {
+            textView(context, appName, 40f, Color.WHITE, bold = true).apply {
+                gravity = Gravity.CENTER
+                letterSpacing = 0.04f
+                setShadowLayer(26f, 0f, 0f, TEAL)
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                setPadding(0, context.dp(10f), 0, 0)
+            },
+            wrap(),
+        )
+
+        // 主信息二：已用时长。
+        column.addView(
+            textView(
+                context,
+                "已连续使用 $continuousMinutes 分钟",
+                17f,
+                0xE6FFFFFF.toInt(),
+            ).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, context.dp(8f), 0, 0)
+            },
+            wrap(),
+        )
+
+        column.addView(View(context), LinearLayout.LayoutParams(1, 0, 1.2f))
+
+        // 呼吸圆环（陪衬，120dp）。
+        rootView.addView(
+            BreathingRingView(context),
+            FrameLayout.LayoutParams(context.dp(120f), context.dp(120f), Gravity.CENTER),
+        )
+        column.addView(View(context), LinearLayout.LayoutParams(1, context.dp(120f)))
+
+        column.addView(
+            textView(context, "跟随圆环，慢慢呼吸", 13f, 0x99A8E6C9.toInt()).apply {
+                gravity = Gravity.CENTER
                 letterSpacing = 0.05f
             },
             wrap(),
         )
 
-        column.addView(View(context), LinearLayout.LayoutParams(1, 0, 3f))
+        column.addView(View(context), LinearLayout.LayoutParams(1, 0, 1.6f))
 
         column.addView(
             pillButton(context, "现在放下", filled = true, textSize = 18f, vPad = 18f) {
@@ -316,18 +350,34 @@ object ReminderOverlay {
             ),
         )
         column.addView(
-            pillButton(context, snoozeLabel(snoozeMinutes), filled = false, textSize = 16f, vPad = 16f) {
+            pillButton(context, snoozeLabel(snoozeMinutes), filled = false, textSize = 16f, vPad = 15f) {
                 onAction("snooze")
             },
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = context.dp(14f) },
+            ).apply { topMargin = context.dp(12f) },
+        )
+        // “专注勿扰”按钮：告诉软件自己在专注，1 小时内不要再打扰。
+        column.addView(
+            pillButton(
+                context,
+                "正在专注？1 小时内勿扰",
+                filled = false,
+                textSize = 14f,
+                vPad = 12f,
+            ) {
+                onAction("focus")
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = context.dp(12f) },
         )
         column.addView(
             textView(context, "提示：连续选择“再刷”超过 3 次，等待时间会缩短", 11f, 0x59FFFFFF.toInt()).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, context.dp(20f), 0, 0)
+                setPadding(0, context.dp(16f), 0, 0)
             },
             wrap(),
         )
@@ -342,6 +392,7 @@ object ReminderOverlay {
         context: Context,
         appName: String,
         snoozeMinutes: Int,
+        continuousMinutes: Int,
         onAction: (String) -> Unit,
     ): View {
         val rootView = FrameLayout(context).apply {
@@ -392,8 +443,9 @@ object ReminderOverlay {
             wrap(),
         )
 
+        // 主信息：应用名 + 已用时长。
         card.addView(
-            textView(context, "你已经在 $appName 上停留一段时间了", 13f, 0xB3FFFFFF.toInt()).apply {
+            textView(context, "$appName · 已用 $continuousMinutes 分钟", 15f, Color.WHITE, bold = true).apply {
                 maxLines = 1
                 setPadding(0, context.dp(10f), 0, 0)
             },
@@ -429,6 +481,17 @@ object ReminderOverlay {
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = context.dp(12f)
             },
+        )
+
+        // 专注勿扰入口（弱提醒里保持低调，避免抢主按钮）。
+        card.addView(
+            textView(context, "正在专注？点此 1 小时内勿扰", 12f, 0x8AFFFFFF.toInt()).apply {
+                gravity = Gravity.CENTER
+                isClickable = true
+                setPadding(0, context.dp(14f), 0, 0)
+                setOnClickListener { onAction("focus") }
+            },
+            wrap(),
         )
 
         return rootView
@@ -493,7 +556,7 @@ object ReminderOverlay {
         private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             color = TEAL
-            strokeWidth = context.dp(6f).toFloat()
+            strokeWidth = context.dp(4f).toFloat()
         }
         private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL

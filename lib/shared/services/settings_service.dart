@@ -19,9 +19,16 @@ class SettingsService extends ChangeNotifier {
   ReminderMode get reminderMode => _config.reminderMode;
   int get thresholdMinutes => _config.thresholdMinutes;
   bool get monitoringEnabled => _config.monitoringEnabled;
+  bool get autoStartEnabled => _config.autoStartEnabled;
   Set<String> get blacklistedPackageNames => _config.blacklistedPackageNames;
   bool get debounceEnabled => _config.debounceEnabled;
   bool get debugMode => _config.debugMode;
+
+  /// “专注勿扰”截止时刻；未开启或已过期时为 null。
+  DateTime? get focusSuppressUntil => _config.focusSuppressUntil;
+
+  /// 当前是否处于“专注勿扰”期内。
+  bool get isFocusSuppressed => _config.focusSuppressUntil != null;
 
   /// 应用启动时先同步读取一次本地配置。
   Future<void> load() async {
@@ -51,6 +58,11 @@ class SettingsService extends ChangeNotifier {
     await _update(_config.copyWith(monitoringEnabled: enabled));
   }
 
+  /// 开启/关闭开机自启动。
+  Future<void> setAutoStartEnabled(bool enabled) async {
+    await _update(_config.copyWith(autoStartEnabled: enabled));
+  }
+
   /// 替换监控名单（去重并排序，保证持久化稳定）。
   Future<void> updateBlacklist(Set<String> packages) async {
     await _update(
@@ -66,6 +78,17 @@ class SettingsService extends ChangeNotifier {
   /// 开启/关闭调试模式。
   Future<void> setDebugMode(bool enabled) async {
     await _update(_config.copyWith(debugMode: enabled));
+  }
+
+  /// 开启“专注勿扰”：[duration] 内不再触发提醒。
+  Future<void> suppressFocus({Duration duration = AppConstants.focusSuppressDuration}) async {
+    final until = DateTime.now().add(duration).millisecondsSinceEpoch;
+    await _update(_config.copyWith(focusSuppressUntilMs: until));
+  }
+
+  /// 提前结束“专注勿扰”。
+  Future<void> clearFocusSuppression() async {
+    await _update(_config.copyWith(focusSuppressUntilMs: 0));
   }
 
   Future<void> _update(AppConfig next) async {

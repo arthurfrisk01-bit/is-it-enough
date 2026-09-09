@@ -110,7 +110,8 @@ class _OnboardingPageState extends State<OnboardingPage> with WidgetsBindingObse
   Widget _buildPermissionCheck() {
     final usageRequired = !_usageOk;
     final overlayRequired = !_overlayOk;
-    
+    final settings = context.watch<SettingsService>();
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -147,9 +148,62 @@ class _OnboardingPageState extends State<OnboardingPage> with WidgetsBindingObse
                       await _checkPermissions();
                     },
                   ),
+                  const SizedBox(height: 12),
+                  // 自启动引导：国产 ROM 不放开这项，后台监控会在息屏后被清掉。
+                  Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+                          secondary: const Icon(Icons.restart_alt, size: 26),
+                          title: const Text(
+                            '开机自启动（建议开启）',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            '重启/应用更新后自动恢复后台监控',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          value: settings.autoStartEnabled,
+                          onChanged: settings.setAutoStartEnabled,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '小米/华为/OPPO/vivo 还需在系统设置里放行后台',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  try {
+                                    await PermissionService()
+                                        .openAutoStartSettings();
+                                  } catch (_) {
+                                    // 厂商页面不存在时忽略，用户可去设置页手动找。
+                                  }
+                                },
+                                child: const Text('去设置'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   Text(
-                    '提示：部分厂商（华为/小米/OPPO/vivo）还需手动开启后台自启与省电白名单，可在设置页稍后配置。',
+                    '提示：部分厂商（华为/小米/OPPO/vivo）还需手动开启后台自启与省电白名单，'
+                    '设置页的「自启动与保活 → 自启动引导」有分步说明。',
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.5,
